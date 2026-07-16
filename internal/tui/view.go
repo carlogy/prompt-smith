@@ -27,7 +27,7 @@ func (m model) View() string {
 
 	l := computeLayout(m.termWidth, m.termHeight)
 
-	leftPane, rightPane := renderPanes(m.viewSkillList(l.contentHeight), m.viewPreview())
+	leftPane, rightPane := renderPanes(m.viewSkillList(l.contentHeight, l.leftContentWidth), m.viewPreview())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 	return lipgloss.JoinVertical(lipgloss.Left, body, footerStyle.Render(footerHelp))
 }
@@ -44,15 +44,15 @@ func renderPanes(left, right string) (string, string) {
 
 // viewSkillList renders the "Skills" title followed by a windowed
 // slice of items (visibleWindow) sized to fit windowHeight content
-// rows, scrolling to keep the cursor visible as it moves.
-func (m model) viewSkillList(windowHeight int) string {
+// rows, scrolling to keep the cursor visible as it moves, with a
+// gutter scrollbar in the last column of width.
+func (m model) viewSkillList(windowHeight, width int) string {
 	// -1: the "Skills" title consumes one row of the pane's content
 	// budget, leaving windowHeight-1 rows for the scrollable list.
 	listHeight := windowHeight - 1
 	visible, offset := visibleWindow(m.items, m.cursor, listHeight)
 
-	lines := make([]string, 0, len(visible)+1)
-	lines = append(lines, "Skills")
+	lines := make([]string, 0, len(visible))
 	for i, it := range visible {
 		globalIndex := offset + i
 		if it.isHeader {
@@ -72,12 +72,15 @@ func (m model) viewSkillList(windowHeight int) string {
 		}
 		lines = append(lines, line)
 	}
-	// strings.Join, not a trailing "\n" after every line: appending "\n"
-	// after the last line too would add a phantom empty row that
-	// lipgloss.Height counts, inflating this pane 1 line taller than
-	// viewPreview (found via the total-height regression test - the two
-	// panes must produce exactly matching heights for a given budget).
-	return strings.Join(lines, "\n")
+
+	// Pad the list block to width-scrollbarWidth so the gutter sits flush
+	// against the pane's right edge (kept inside the existing content
+	// width, leaving the pane's outer size / border alignment unchanged).
+	listBlock := lipgloss.NewStyle().Width(width - scrollbarWidth).Render(strings.Join(lines, "\n"))
+	bar := scrollbar(listHeight, len(m.items), listHeight, offset)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, listBlock, strings.Join(bar, "\n"))
+
+	return "Skills\n" + body
 }
 
 func (m model) viewPreview() string {
@@ -85,10 +88,17 @@ func (m model) viewPreview() string {
 	if overflowing := !(m.previewVP.AtTop() && m.previewVP.AtBottom()); overflowing {
 		title = fmt.Sprintf("%s \u2014 \u2191\u2193 %d%%", title, int(m.previewVP.ScrollPercent()*100))
 	}
+
+	// Gutter scrollbar in the last column, beside the viewport content
+	// (viewport width was already reduced by scrollbarWidth to make room,
+	// so the pane's outer width - and border alignment - is unchanged).
+	bar := scrollbar(m.previewVP.Height, m.previewVP.TotalLineCount(), m.previewVP.Height, m.previewVP.YOffset)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, m.previewVP.View(), strings.Join(bar, "\n"))
+
 	// Single newline, no blank separator line - matches viewSkillList's
 	// "Skills\n" pattern so both panes' title overhead is exactly 1 row
 	// and previewVP.Height (set to contentHeight-1) covers the rest.
-	return previewTitleStyle.Render(title) + "\n" + m.previewVP.View()
+	return previewTitleStyle.Render(title) + "\n" + body
 }
 
 func (m model) viewFilenamePrompt() string {

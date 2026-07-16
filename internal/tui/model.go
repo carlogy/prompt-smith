@@ -69,7 +69,7 @@ func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 		constraints:  initial.Constraints,
 		role:         initial.Role,
 		outputFormat: initial.OutputFormat,
-		previewVP:    viewport.New(l.rightContentWidth, l.contentHeight-1),
+		previewVP:    viewport.New(l.rightContentWidth-scrollbarWidth, l.contentHeight-1),
 	}
 	m.recomputePreview()
 	return m
@@ -121,8 +121,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.termWidth, m.termHeight = msg.Width, msg.Height
 		l := computeLayout(m.termWidth, m.termHeight)
-		m.previewVP.Width = l.rightContentWidth
-		m.previewVP.Height = l.contentHeight - 1 // -1: the "Preview" title line
+		m.previewVP.Width = l.rightContentWidth - scrollbarWidth // -scrollbarWidth: reserve the gutter column
+		m.previewVP.Height = l.contentHeight - 1                 // -1: the "Preview" title line
 		return m, nil
 	case tea.KeyMsg:
 		if m.enteringFilename {
@@ -130,15 +130,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.updatePicker(msg)
 	case tea.MouseMsg:
+		// Ignored entirely while the filename modal is up - the split
+		// view (and its geometry) isn't on screen then.
+		if m.enteringFilename {
+			return m, nil
+		}
 		// Deliberately not delegated to previewVP.Update(msg): its
 		// default keymap also binds Up/Down, which must stay reserved
-		// for the skill cursor. Wheel events are handled explicitly
-		// instead, scoped to just wheel up/down.
+		// for the skill cursor. Wheel + left-click are handled
+		// explicitly instead.
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
 			m.previewVP.ScrollUp(mouseWheelLines)
 		case tea.MouseButtonWheelDown:
 			m.previewVP.ScrollDown(mouseWheelLines)
+		case tea.MouseButtonLeft:
+			if msg.Action == tea.MouseActionPress {
+				return m.handleLeftClick(msg.X, msg.Y), nil
+			}
 		}
 		return m, nil
 	}
@@ -210,6 +219,31 @@ func (m model) updateFilenameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.filenameInput, cmd = m.filenameInput.Update(msg)
 	return m, cmd
+}
+
+// handleLeftClick maps a click to a skill row (via the same geometry the
+// view renders with) and, if it lands on a selectable item, moves the
+// cursor there and toggles it - the mouse equivalent of navigating with
+// the arrows and pressing space.
+func (m model) handleLeftClick(x, y int) model {
+	l := computeLayout(m.termWidth, m.termHeight)
+	leftPaneWidth := l.leftContentWidth + paneHOverhead
+	listHeight := l.contentHeight - 1
+	_, offset := visibleWindow(m.items, m.cursor, listHeight)
+
+	idx, ok := itemAtPoint(x, y, leftPaneWidth, listHeight, offset, m.items)
+	if !ok {
+		return m
+	}
+
+	m.cursor = idx
+	// Copy before mutating: m.items shares its backing array with the
+	// model this Update started from (see the space-toggle note).
+	items := append([]item(nil), m.items...)
+	items[idx].selected = !items[idx].selected
+	m.items = items
+	m.recomputePreview()
+	return m
 }
 
 // currentInputs builds the prompt.Inputs the current model state would

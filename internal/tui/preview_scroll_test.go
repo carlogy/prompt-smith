@@ -131,3 +131,21 @@ func TestPreview_PageDownDoesNotMutateThePriorModelsScrollOffset(t *testing.T) {
 		t.Error("expected the new model's scroll offset to have advanced")
 	}
 }
+
+func TestPreview_ShowsScrollbarThumbOnlyWhenOverflowing(t *testing.T) {
+	overflow := longBodyRegistry("l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10")
+	m := newModel(overflow, prompt.Inputs{Target: "generic", Goal: "g", Skills: []string{"longskill"}})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8}) // small -> overflows
+	m2 := updated.(model)
+	if !strings.Contains(m2.View(), scrollThumb) {
+		t.Errorf("expected a scrollbar thumb in the preview when content overflows, got:\n%s", stripANSI(m2.View()))
+	}
+
+	fits := fixtureRegistry() // one-line body
+	m3 := newModel(fits, prompt.Inputs{Target: "generic", Goal: "g", Skills: []string{"diagnose"}})
+	updated2, _ := m3.Update(tea.WindowSizeMsg{Width: 80, Height: 24}) // plenty of room
+	m4 := updated2.(model)
+	if strings.Contains(m4.View(), scrollThumb) {
+		t.Errorf("expected no scrollbar thumb when nothing overflows, got:\n%s", stripANSI(m4.View()))
+	}
+}

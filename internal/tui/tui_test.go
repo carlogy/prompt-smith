@@ -81,3 +81,28 @@ func TestModel_EndToEnd_EscCancelsWithoutTypingAnything(t *testing.T) {
 		t.Errorf("Action = %v, want ActionCancel", final.result.Action)
 	}
 }
+
+func TestModel_EndToEnd_ClickSelectsSkillThenEnterConfirms(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	// click verify (index 3) at its screen row, then confirm to stdout.
+	tm.Send(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 3, Y: listTopOffset + 3})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+
+	final := tm.FinalModel(t).(model)
+	if final.result.Action != ActionStdout {
+		t.Errorf("Action = %v, want ActionStdout", final.result.Action)
+	}
+	found := false
+	for _, s := range final.result.Inputs.Skills {
+		if s == "verify" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Inputs.Skills = %v, want to include the clicked skill 'verify'", final.result.Inputs.Skills)
+	}
+}
