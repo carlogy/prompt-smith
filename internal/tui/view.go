@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -17,9 +18,13 @@ var (
 
 const footerHelp = "\u2191/\u2193 move \u00b7 space select \u00b7 pgup/pgdn scroll preview \u00b7 enter=stdout \u00b7 c=copy \u00b7 w=write \u00b7 esc=cancel"
 
-// View satisfies tea.Model: a split-pane layout (skill picker left,
-// live preview right) plus a footer, or the save-filename prompt when
-// enteringFilename is true.
+// fieldLabelWidth is padded to the longest label ("Constraints") so
+// every field row's input starts at the same column.
+const fieldLabelWidth = len("Constraints")
+
+// View satisfies tea.Model: a split-pane layout (skill picker + fields
+// left, live preview right) plus a footer, or the save-filename prompt
+// when enteringFilename is true.
 func (m model) View() string {
 	if m.enteringFilename {
 		return m.viewFilenamePrompt()
@@ -27,7 +32,8 @@ func (m model) View() string {
 
 	l := computeLayout(m.termWidth, m.termHeight)
 
-	leftPane, rightPane := renderPanes(m.viewSkillList(l.contentHeight, l.leftContentWidth), m.viewPreview())
+	left := m.viewSkillList(l.skillsHeight, l.leftContentWidth) + "\n" + m.viewFields(l.leftContentWidth)
+	leftPane, rightPane := renderPanes(left, m.viewPreview())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 	return lipgloss.JoinVertical(lipgloss.Left, body, footerStyle.Render(footerHelp))
 }
@@ -88,6 +94,9 @@ func (m model) viewPreview() string {
 	if overflowing := !(m.previewVP.AtTop() && m.previewVP.AtBottom()); overflowing {
 		title = fmt.Sprintf("%s \u2014 \u2191\u2193 %d%%", title, int(m.previewVP.ScrollPercent()*100))
 	}
+	if m.focus == focusPreview {
+		title = "\u203a " + title
+	}
 
 	// Gutter scrollbar in the last column, beside the viewport content
 	// (viewport width was already reduced by scrollbarWidth to make room,
@@ -99,6 +108,45 @@ func (m model) viewPreview() string {
 	// "Skills\n" pattern so both panes' title overhead is exactly 1 row
 	// and previewVP.Height (set to contentHeight-1) covers the rest.
 	return previewTitleStyle.Render(title) + "\n" + body
+}
+
+// fieldSpec pairs one editable field's label, focus zone, and current
+// textinput state, so viewFields can render all five uniformly.
+type fieldSpec struct {
+	label string
+	zone  focusZone
+	input textinput.Model
+}
+
+// fieldSpecs lists the five editable fields in their canonical
+// (Tab-cycle) order.
+func (m model) fieldSpecs() []fieldSpec {
+	return []fieldSpec{
+		{"Goal", focusGoal, m.goalInput},
+		{"Context", focusContext, m.contextInput},
+		{"Constraints", focusConstraints, m.constraintsInput},
+		{"Role", focusRole, m.roleInput},
+		{"Output", focusOutputFormat, m.outputFormatInput},
+	}
+}
+
+// viewFields renders one row per editable field ("Label: value"),
+// padded to width so it aligns with the skill list above it in the
+// same pane, with the focused field's row marked (matching the skill
+// cursor's and the focused preview title's \u203a convention).
+func (m model) viewFields(width int) string {
+	lines := make([]string, 0, numFields)
+	for _, f := range m.fieldSpecs() {
+		label := fmt.Sprintf("%-*s", fieldLabelWidth, f.label)
+		row := fmt.Sprintf("%s: %s", label, f.input.View())
+		if f.zone == m.focus {
+			row = cursorLineStyle.Render("\u203a " + row)
+		} else {
+			row = "  " + row
+		}
+		lines = append(lines, row)
+	}
+	return lipgloss.NewStyle().Width(width - scrollbarWidth).Render(strings.Join(lines, "\n"))
 }
 
 func (m model) viewFilenamePrompt() string {

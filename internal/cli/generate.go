@@ -26,11 +26,6 @@ var runTUIFunc = tui.Run
 // errEmptyGoal is returned when no goal text was given.
 var errEmptyGoal = errors.New(`promptsmith: a goal is required, e.g. promptsmith "fix the flaky test"`)
 
-// errTUINeedsGoal is returned when the interactive picker would launch
-// but no goal was given: the picker can't collect one yet (a later
-// release adds inline goal/field editing).
-var errTUINeedsGoal = errors.New(`promptsmith: the interactive picker needs a goal argument in this release, e.g. promptsmith --tui "fix the flaky test"`)
-
 // generateOptions holds the root command's flag values.
 type generateOptions struct {
 	target       string
@@ -74,9 +69,8 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 	}
 
 	if useTUI {
-		if goal == "" {
-			return errTUINeedsGoal
-		}
+		// goal may be empty here (bare `promptsmith`): the picker
+		// collects it inline, focused on the goal field by default.
 		return runInteractive(cmd, reg, opts, goal)
 	}
 

@@ -3,11 +3,15 @@ package tui
 // layout is the computed size budget derived from the terminal
 // dimensions: how many content columns each pane gets (inside its
 // border+padding) and how many content rows both panes get (inside
-// their border, after reserving the footer line).
+// their border, after reserving the footer line). The left pane's
+// content rows split further between the skill list and the fields
+// section (skillsHeight + fieldsHeight == contentHeight).
 type layout struct {
 	leftContentWidth  int
 	rightContentWidth int
 	contentHeight     int
+	fieldsHeight      int
+	skillsHeight      int
 }
 
 const (
@@ -22,6 +26,9 @@ const (
 	minContentHeight = 1
 
 	leftPaneFraction = 3 // left pane gets ~1/leftPaneFraction of the width
+
+	numFields       = 5 // goal, context, constraints, role, output-format
+	minSkillsHeight = 2 // "Skills" title + at least 1 visible list row
 )
 
 // computeLayout derives the pane content sizes from the terminal
@@ -40,6 +47,25 @@ func computeLayout(termWidth, termHeight int) layout {
 	if contentHeight < minContentHeight {
 		contentHeight = minContentHeight
 	}
+	// contentHeight is the shared left/right pane height (both panes
+	// always render to exactly this many rows - viewPreview by
+	// construction via previewVP.Height, and the left pane because
+	// skillsHeight+fieldsHeight sums back to it below). If it's too
+	// small to fit the fixed fieldsHeight AND a minimally-useful
+	// skills section, floor it here - not by letting skillsHeight
+	// alone go to a degenerate size, which would make viewSkillList's
+	// listHeight hit 0 and fall back to showing every item unbounded,
+	// silently overflowing the whole layout past the terminal height
+	// (the bug this comment is guarding against; found via
+	// TestView_TotalHeightNeverExceedsTerminalHeight going red after
+	// the fields section was added).
+	minRequiredContentHeight := numFields + minSkillsHeight
+	if contentHeight < minRequiredContentHeight {
+		contentHeight = minRequiredContentHeight
+	}
+
+	fieldsHeight := numFields
+	skillsHeight := contentHeight - fieldsHeight
 
 	leftOuterWidth := termWidth / leftPaneFraction
 	rightOuterWidth := termWidth - leftOuterWidth
@@ -57,5 +83,7 @@ func computeLayout(termWidth, termHeight int) layout {
 		leftContentWidth:  leftContentWidth,
 		rightContentWidth: rightContentWidth,
 		contentHeight:     contentHeight,
+		fieldsHeight:      fieldsHeight,
+		skillsHeight:      skillsHeight,
 	}
 }

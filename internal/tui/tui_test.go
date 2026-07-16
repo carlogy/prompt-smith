@@ -106,3 +106,48 @@ func TestModel_EndToEnd_ClickSelectsSkillThenEnterConfirms(t *testing.T) {
 		t.Errorf("Inputs.Skills = %v, want to include the clicked skill 'verify'", final.result.Inputs.Skills)
 	}
 }
+
+func TestModel_EndToEnd_TypeGoalScrollPreviewTabBackToSkillsThenConfirm(t *testing.T) {
+	// A long body (not a small terminal) forces genuine preview
+	// overflow, so scrolling has something real to do regardless of
+	// exact layout math.
+	longBody := make([]string, 30)
+	for i := range longBody {
+		longBody[i] = "line"
+	}
+	reg := longBodyRegistry(longBody...)
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "", Skills: []string{"longskill"}})
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(90, 20))
+
+	// Empty goal -> focus starts on the goal field; type it directly.
+	tm.Type("fix the flaky checkout test")
+
+	// Tab cycle: goal(1) -> context(2) -> constraints(3) -> role(4) ->
+	// outputFormat(5) -> preview(6): 5 tabs.
+	for i := 0; i < 5; i++ {
+		tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+	}
+	// Preview now focused: Down scrolls it, not a skill cursor.
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+
+	// One more tab wraps preview(6) -> skills(0).
+	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+
+	final := tm.FinalModel(t).(model)
+	if final.focus != focusSkills {
+		t.Errorf("focus at confirm time = %v, want focusSkills", final.focus)
+	}
+	if final.result.Action != ActionStdout {
+		t.Errorf("Action = %v, want ActionStdout", final.result.Action)
+	}
+	if final.result.Inputs.Goal != "fix the flaky checkout test" {
+		t.Errorf("Inputs.Goal = %q, want the goal typed into the field", final.result.Inputs.Goal)
+	}
+	if final.previewVP.YOffset == 0 {
+		t.Error("expected the preview to have scrolled while it was focused")
+	}
+}

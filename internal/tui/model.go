@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/carlogy/prompt-smith/internal/prompt"
 	"github.com/carlogy/prompt-smith/internal/registry"
@@ -36,11 +38,20 @@ type model struct {
 	termWidth  int
 	termHeight int
 
-	goal         string
-	context      string
-	constraints  string
-	role         string
-	outputFormat string
+	// focus is which zone currently receives key input; Tab/Shift+Tab
+	// cycle it. Zero value is focusSkills, matching pre-P3c behavior.
+	focus focusZone
+
+	goal              string
+	goalInput         textinput.Model
+	context           string
+	contextInput      textinput.Model
+	constraints       string
+	constraintsInput  textinput.Model
+	role              string
+	roleInput         textinput.Model
+	outputFormat      string
+	outputFormatInput textinput.Model
 
 	preview   string
 	previewVP viewport.Model
@@ -59,17 +70,51 @@ type model struct {
 func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 	items := buildItems(reg, initial.Target, initial.Skills)
 	l := computeLayout(0, 0) // falls back to a usable default until the first WindowSizeMsg
+
+	// Prompt defaults to "> " (bubbles/textinput), rendered outside the
+	// width-constrained value area - "Label: > value" is both redundant
+	// (the row's own label already says what this is) and, worse,
+	// consumes 2 cols the field-width budget in the WindowSizeMsg
+	// handler doesn't account for, which wrapped long values onto a
+	// second physical row (found via
+	// TestView_FieldRowsDoNotWrapWithLongValues). Clearing it removes
+	// both problems at once.
+	newField := func(value string) textinput.Model {
+		ti := textinput.New()
+		ti.Prompt = ""
+		ti.SetValue(value)
+		return ti
+	}
+	goalInput := newField(initial.Goal)
+	contextInput := newField(initial.Context)
+	constraintsInput := newField(initial.Constraints)
+	roleInput := newField(initial.Role)
+	outputFormatInput := newField(initial.OutputFormat)
+
 	m := model{
-		reg:          reg,
-		target:       initial.Target,
-		items:        items,
-		cursor:       firstSelectable(items),
-		goal:         initial.Goal,
-		context:      initial.Context,
-		constraints:  initial.Constraints,
-		role:         initial.Role,
-		outputFormat: initial.OutputFormat,
-		previewVP:    viewport.New(l.rightContentWidth-scrollbarWidth, l.contentHeight-1),
+		reg:               reg,
+		target:            initial.Target,
+		items:             items,
+		cursor:            firstSelectable(items),
+		goal:              initial.Goal,
+		goalInput:         goalInput,
+		context:           initial.Context,
+		contextInput:      contextInput,
+		constraints:       initial.Constraints,
+		constraintsInput:  constraintsInput,
+		role:              initial.Role,
+		roleInput:         roleInput,
+		outputFormat:      initial.OutputFormat,
+		outputFormatInput: outputFormatInput,
+		previewVP:         viewport.New(l.rightContentWidth-scrollbarWidth, l.contentHeight-1),
+	}
+	// An empty goal (bare `promptsmith` with no goal argument) starts
+	// with the goal field focused so there's an immediate, obvious next
+	// action; a goal already supplied via flags/args keeps the P3a/P3b
+	// default of starting on the skill list.
+	if initial.Goal == "" {
+		focused, _ := m.changeFocus(focusGoal)
+		m = focused.(model)
 	}
 	m.recomputePreview()
 	return m
@@ -123,10 +168,52 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		l := computeLayout(m.termWidth, m.termHeight)
 		m.previewVP.Width = l.rightContentWidth - scrollbarWidth // -scrollbarWidth: reserve the gutter column
 		m.previewVP.Height = l.contentHeight - 1                 // -1: the "Preview" title line
+
+		// Field inputs share the skill list's content width (matched to
+		// its scrollbar-reserved width so the pane's rendered width -
+		// sized to its widest line - stays identical for both
+		// sections), minus each row's "Label: " prefix AND minus the
+		// 2-col "\u203a "/"  " focus-marker prefix viewFields adds
+		// after this width is used (found via
+		// TestView_FieldRowsDoNotWrapWithLongValues going red: without
+		// this, a long value's row was 2 cols wider than budgeted and
+		// lipgloss.Width wrapped it onto a second physical line instead
+		// of leaving it to the input's own horizontal scroll). Measured
+		// with lipgloss.Width, not len - len is byte length, and
+		// \u203a is a multi-byte UTF-8 character but a single display
+		// column.
+		markerWidth := lipgloss.Width("\u203a ")
+		fieldWidth := (l.leftContentWidth - scrollbarWidth) - fieldLabelWidth - len(": ") - markerWidth
+		if fieldWidth < minContentWidth {
+			fieldWidth = minContentWidth
+		}
+		m.goalInput.Width = fieldWidth
+		m.contextInput.Width = fieldWidth
+		m.constraintsInput.Width = fieldWidth
+		m.roleInput.Width = fieldWidth
+		m.outputFormatInput.Width = fieldWidth
 		return m, nil
 	case tea.KeyMsg:
 		if m.enteringFilename {
 			return m.updateFilenameInput(msg)
+		}
+		switch msg.Type {
+		case tea.KeyTab:
+			return m.changeFocus(nextFocus(m.focus))
+		case tea.KeyShiftTab:
+			return m.changeFocus(prevFocus(m.focus))
+		}
+		switch m.focus {
+		case focusGoal:
+			return m.updateGoalField(msg)
+		case focusContext:
+			return m.updateContextField(msg)
+		case focusConstraints:
+			return m.updateConstraintsField(msg)
+		case focusRole:
+			return m.updateRoleField(msg)
+		case focusOutputFormat:
+			return m.updateOutputFormatField(msg)
 		}
 		return m.updatePicker(msg)
 	case tea.MouseMsg:
@@ -154,19 +241,114 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// changeFocus blurs whichever field is currently focused, sets focus to
+// to, and focuses that zone's field if it has one (skills/preview don't).
+// Returns any tea.Cmd the newly-focused field wants (e.g. cursor blink).
+func (m model) changeFocus(to focusZone) (tea.Model, tea.Cmd) {
+	m.goalInput.Blur()
+	m.contextInput.Blur()
+	m.constraintsInput.Blur()
+	m.roleInput.Blur()
+	m.outputFormatInput.Blur()
+	m.focus = to
+
+	var cmd tea.Cmd
+	switch to {
+	case focusGoal:
+		cmd = m.goalInput.Focus()
+	case focusContext:
+		cmd = m.contextInput.Focus()
+	case focusConstraints:
+		cmd = m.constraintsInput.Focus()
+	case focusRole:
+		cmd = m.roleInput.Focus()
+	case focusOutputFormat:
+		cmd = m.outputFormatInput.Focus()
+	}
+	return m, cmd
+}
+
+// updateGoalField routes a key to the goal textinput while it's focused,
+// keeps m.goal in sync with its value, and recomputes the live preview.
+// Esc blurs back to the skill list rather than being passed to the
+// field (which would do nothing) or canceling the whole TUI.
+func (m model) updateGoalField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		return m.changeFocus(focusSkills)
+	}
+	cmd := m.updateTextField(msg, &m.goalInput, &m.goal)
+	return m, cmd
+}
+
+// updateContextField mirrors updateGoalField for the context field.
+func (m model) updateContextField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		return m.changeFocus(focusSkills)
+	}
+	cmd := m.updateTextField(msg, &m.contextInput, &m.context)
+	return m, cmd
+}
+
+// updateConstraintsField mirrors updateGoalField for the constraints field.
+func (m model) updateConstraintsField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		return m.changeFocus(focusSkills)
+	}
+	cmd := m.updateTextField(msg, &m.constraintsInput, &m.constraints)
+	return m, cmd
+}
+
+// updateRoleField mirrors updateGoalField for the role field.
+func (m model) updateRoleField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		return m.changeFocus(focusSkills)
+	}
+	cmd := m.updateTextField(msg, &m.roleInput, &m.role)
+	return m, cmd
+}
+
+// updateOutputFormatField mirrors updateGoalField for the output-format field.
+func (m model) updateOutputFormatField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		return m.changeFocus(focusSkills)
+	}
+	cmd := m.updateTextField(msg, &m.outputFormatInput, &m.outputFormat)
+	return m, cmd
+}
+
+// updateTextField routes msg to input, syncs *target with the field's
+// new value, and recomputes the live preview. Shared by every editable
+// field's update method so the routing/sync/recompute pattern isn't
+// duplicated per field.
+func (m *model) updateTextField(msg tea.KeyMsg, input *textinput.Model, target *string) tea.Cmd {
+	var cmd tea.Cmd
+	*input, cmd = input.Update(msg)
+	*target = input.Value()
+	m.recomputePreview()
+	return cmd
+}
+
 // updatePicker handles keys while the skill list has focus.
 func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyUp:
-		m.cursor = prevSelectable(m.items, m.cursor)
+		if m.focus == focusPreview {
+			m.previewVP.ScrollUp(arrowScrollLines)
+		} else {
+			m.cursor = prevSelectable(m.items, m.cursor)
+		}
 	case tea.KeyDown:
-		m.cursor = nextSelectable(m.items, m.cursor)
+		if m.focus == focusPreview {
+			m.previewVP.ScrollDown(arrowScrollLines)
+		} else {
+			m.cursor = nextSelectable(m.items, m.cursor)
+		}
 	case tea.KeyPgUp:
 		m.previewVP.PageUp()
 	case tea.KeyPgDown:
 		m.previewVP.PageDown()
 	case tea.KeySpace:
-		if !m.items[m.cursor].isHeader {
+		if m.focus == focusSkills && !m.items[m.cursor].isHeader {
 			// Update has a value receiver, but m.items is a slice:
 			// copying the struct does NOT copy the backing array, so
 			// mutating m.items[i] in place would corrupt the model
@@ -178,6 +360,9 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.recomputePreview()
 		}
 	case tea.KeyEnter:
+		if m.goalIsEmpty() {
+			return m, nil
+		}
 		m.result = Result{Inputs: m.currentInputs(), Action: ActionStdout}
 		return m, tea.Quit
 	case tea.KeyEsc, tea.KeyCtrlC:
@@ -186,9 +371,15 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyRunes:
 		switch string(msg.Runes) {
 		case "c":
+			if m.goalIsEmpty() {
+				return m, nil
+			}
 			m.result = Result{Inputs: m.currentInputs(), Action: ActionCopy}
 			return m, tea.Quit
 		case "w":
+			if m.goalIsEmpty() {
+				return m, nil
+			}
 			m.enteringFilename = true
 			m.filenameInput = textinput.New()
 			m.filenameInput.SetValue(SuggestFilename(m.goal, time.Now()))
@@ -261,6 +452,17 @@ func (m model) currentInputs() prompt.Inputs {
 	}
 }
 
+// goalIsEmpty reports whether the goal is blank (whitespace-only counts
+// as blank). Confirm actions (stdout/copy/write) are blocked while
+// true, matching the same "goal is required" policy the non-interactive
+// flag path enforces (errEmptyGoal) - Build itself doesn't require a
+// goal (an empty one just omits <task>), but a goal-less prompt is
+// rarely useful, so both paths hold the same line. Cancel is exempt:
+// you can always back out, empty goal or not.
+func (m model) goalIsEmpty() bool {
+	return strings.TrimSpace(m.goal) == ""
+}
+
 // selectedIDs returns the ids of every currently-selected skill, in the
 // same canonical order they appear in items (already sorted by
 // registry.SortSkills when items was built).
@@ -292,6 +494,11 @@ func (m *model) recomputePreview() {
 
 // mouseWheelLines is how many lines one wheel tick scrolls the preview.
 const mouseWheelLines = 3
+
+// arrowScrollLines is how many lines Up/Down scroll the preview when
+// it's focused - finer-grained than a wheel tick or PgUp/PgDn, matching
+// common pager conventions (arrows = line-at-a-time, page keys = a page).
+const arrowScrollLines = 1
 
 func prevSelectable(items []item, from int) int {
 	for i := from - 1; i >= 0; i-- {

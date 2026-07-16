@@ -53,7 +53,10 @@ func TestNewModel_FiltersGroupsAndStartsOnASelectableItem(t *testing.T) {
 
 func TestModel_CursorNavigationSkipsHeaders(t *testing.T) {
 	reg := fixtureRegistry()
-	m := newModel(reg, prompt.Inputs{Target: "generic"})
+	// Goal is non-empty so this starts with skills focused (an empty
+	// goal auto-focuses the goal field instead, as of P3c) - this test
+	// is purely about cursor navigation, unrelated to that.
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m2 := updated.(model)
@@ -73,7 +76,8 @@ func TestModel_CursorNavigationSkipsHeaders(t *testing.T) {
 
 func TestModel_CursorClampsAtBoundaries(t *testing.T) {
 	reg := fixtureRegistry()
-	m := newModel(reg, prompt.Inputs{Target: "generic"})
+	// Same non-empty-goal note as above.
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m2 := updated.(model)
@@ -348,14 +352,15 @@ func TestModel_WindowSizeMsgUpdatesDimensions(t *testing.T) {
 func TestView_SkillListScrollsToKeepCursorVisible(t *testing.T) {
 	// fixtureRegistry on "generic" produces exactly 4 items:
 	// [header:debugging, diagnose, header:testing, verify]
-	// (agent-only is excluded: unsupported on generic). Height=6 ->
-	// computeLayout's contentHeight=3 -> a 2-row skill list window
-	// (contentHeight minus the "Skills" title line), so this small
-	// fixture is enough to force real scrolling without a bigger one.
+	// (agent-only is excluded: unsupported on generic). Height=11 ->
+	// contentHeight=8, minus the fixed 5-row fields section ->
+	// skillsHeight=3 -> a 2-row skill list window (skillsHeight minus
+	// the "Skills" title line), so this small fixture is enough to
+	// force real scrolling without a bigger one.
 	reg := fixtureRegistry()
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
 
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 11})
 	m2 := updated.(model)
 
 	got1 := stripANSI(m2.View())

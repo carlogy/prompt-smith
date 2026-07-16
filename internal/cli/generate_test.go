@@ -395,11 +395,19 @@ func TestGenerate_TUI_WriteAction(t *testing.T) {
 	}
 }
 
-func TestGenerate_TUI_RequiresAGoalArgumentInThisRelease(t *testing.T) {
+func TestGenerate_TUI_LaunchesWithEmptyGoalWhenBare(t *testing.T) {
+	// As of P3c, the picker collects the goal inline (focused on the
+	// goal field by default) - bare promptsmith no longer errors.
+	var receivedGoal string
+	called := false
 	defer stubInteractive(t, true)()
 	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
-		t.Fatal("runTUIFunc should not be called when no goal was given")
-		return tui.Result{}, nil
+		called = true
+		receivedGoal = in.Goal
+		// Simulate the picker collecting a goal before confirming.
+		in.Goal = "typed in the picker"
+		in.Skills = []string{"diagnose"}
+		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil
 	})()
 
 	reg := testRegistry(t)
@@ -407,10 +415,19 @@ func TestGenerate_TUI_RequiresAGoalArgumentInThisRelease(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	root.SetArgs([]string{"-t", "generic"}) // no goal, TTY, bare -> would-be TUI
+	root.SetArgs([]string{"-t", "generic"}) // no goal, TTY, bare -> TUI
 
-	if err := root.Execute(); err == nil {
-		t.Fatal("Execute() error = nil, want an error: the TUI can't collect a goal yet")
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if !called {
+		t.Fatal("expected runTUIFunc to be called even with no goal argument")
+	}
+	if receivedGoal != "" {
+		t.Errorf("initial goal passed to the TUI = %q, want empty (the picker collects it)", receivedGoal)
+	}
+	if !strings.Contains(stdout.String(), "typed in the picker") {
+		t.Errorf("expected the goal collected in the picker to reach the built prompt, got:\n%s", stdout.String())
 	}
 }
 
