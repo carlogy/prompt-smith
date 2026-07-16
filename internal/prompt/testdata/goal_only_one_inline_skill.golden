@@ -1,0 +1,7 @@
+<task>
+Fix the flaky checkout test.
+</task>
+
+<approach>
+Build a fast, deterministic pass/fail signal before anything else. Reproduce, generate 3-5 falsifiable hypotheses, instrument one variable at a time, fix with a regression test, then remove the instrumentation.
+</approach>

@@ -1,0 +1,20 @@
+targets:
+  - id: generic
+    delimiter: xml
+    skill_mode: inline
+
+  - id: opencode
+    delimiter: xml
+    skill_mode: reference
+    tools:
+      search: grep
+      read: read
+      find: glob
+
+  - id: claude-code
+    delimiter: xml
+    skill_mode: reference
+    tools:
+      search: Grep
+      read: Read
+      find: Glob

@@ -1,0 +1,23 @@
+<role>
+You are a senior Go engineer meticulous about concurrency.
+</role>
+
+<task>
+Fix the flaky checkout test.
+</task>
+
+<context>
+checkout_test.go:42 fails ~1 in 5 in CI; passes locally; suspected race.
+</context>
+
+<approach>
+Build a fast, deterministic pass/fail signal before anything else. Reproduce, generate 3-5 falsifiable hypotheses, instrument one variable at a time, fix with a regression test, then remove the instrumentation.
+</approach>
+
+<constraints>
+Don't change assertions; add no new dependencies.
+</constraints>
+
+<output_format>
+Return the root cause and the fix as a unified diff.
+</output_format>

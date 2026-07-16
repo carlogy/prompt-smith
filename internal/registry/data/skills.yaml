@@ -1,0 +1,102 @@
+categories:
+  - planning
+  - debugging
+  - testing
+  - review
+  - git
+  - communication
+  - learning
+
+skills:
+  - id: architect
+    name: Architect
+    category: planning
+    order: 10
+    when_to_use: >-
+      Mapping a codebase or assessing the impact / blast-radius of a change before
+      modifying code; being dropped into unfamiliar code; before large features or
+      refactors.
+    body: bodies/planning/architect.md
+
+  - id: convention
+    name: Convention
+    category: planning
+    order: 20
+    when_to_use: >-
+      Matching the existing code style, or before writing code in an unfamiliar or
+      polyglot codebase, so new code looks like the existing team wrote it.
+    body: bodies/planning/convention.md
+
+  - id: grill-me
+    name: Grill Me
+    category: planning
+    order: 30
+    when_to_use: >-
+      Stress-testing a plan or design by being interviewed about it until every
+      ambiguous term and edge case is resolved.
+    body: bodies/planning/grill-me.md
+
+  - id: diagnose
+    name: Diagnose
+    category: debugging
+    order: 10
+    when_to_use: >-
+      Hard bugs, failing tests, or performance regressions that need a disciplined
+      debugging loop rather than guesswork.
+    body: bodies/debugging/diagnose.md
+
+  - id: tdd
+    name: TDD
+    category: testing
+    order: 10
+    when_to_use: >-
+      Building a feature or fixing a bug where tests should drive the
+      implementation, one behavior at a time.
+    body: bodies/testing/tdd.md
+
+  - id: verify
+    name: Verify
+    category: testing
+    order: 20
+    when_to_use: >-
+      Before marking any task done, and after every meaningful change, not only at
+      the very end.
+    body: bodies/testing/verify.md
+    refs:
+      claude-code: verify-checks
+
+  - id: caveman-review
+    name: Caveman Review
+    category: review
+    order: 10
+    when_to_use: >-
+      Reviewing a diff or pull request and wanting terse, actionable comments
+      instead of long-form prose.
+    body: bodies/review/caveman-review.md
+
+  - id: caveman-commit
+    name: Caveman Commit
+    category: git
+    order: 10
+    when_to_use: >-
+      Writing a commit message for staged changes, favoring Conventional Commits
+      format over long narrative descriptions.
+    body: bodies/git/caveman-commit.md
+
+  - id: caveman
+    name: Caveman
+    category: communication
+    order: 10
+    when_to_use: >-
+      Communicating tersely to cut token usage while keeping full technical
+      accuracy — dropping filler, not substance.
+    body: bodies/communication/caveman.md
+
+  - id: codebase-course
+    name: Codebase Course
+    category: learning
+    order: 10
+    when_to_use: >-
+      Turning a codebase into a structured learning experience — onboarding,
+      practicing a language or pattern, or debugging challenges.
+    body: bodies/learning/codebase-course.md
