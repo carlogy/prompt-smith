@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/carlogy/prompt-smith/internal/prompt"
+	"github.com/carlogy/prompt-smith/internal/registry"
+	"github.com/carlogy/prompt-smith/internal/tui"
 )
 
 // stubClipboard substitutes copyToClipboard with fn for the duration of
@@ -15,6 +19,27 @@ func stubClipboard(t *testing.T, fn func(string) error) func() {
 	original := copyToClipboard
 	copyToClipboard = fn
 	return func() { copyToClipboard = original }
+}
+
+// stubInteractive forces isInteractive() to return val for the duration
+// of the calling test, restoring the original on cleanup. Used so gate
+// tests never depend on whether the test runner's own stdio happens to
+// be a terminal.
+func stubInteractive(t *testing.T, val bool) func() {
+	t.Helper()
+	original := isInteractive
+	isInteractive = func() bool { return val }
+	return func() { isInteractive = original }
+}
+
+// stubRunTUI substitutes the tui.Run seam with fn for the duration of
+// the calling test, so gate tests never launch a real Bubble Tea program
+// (which would block reading real stdin).
+func stubRunTUI(t *testing.T, fn func(*registry.Registry, prompt.Inputs) (tui.Result, error)) func() {
+	t.Helper()
+	original := runTUIFunc
+	runTUIFunc = fn
+	return func() { runTUIFunc = original }
 }
 
 func TestGenerate_TracerBullet(t *testing.T) {
@@ -237,5 +262,221 @@ func TestGenerate_UnknownTargetWithNoSkills_ErrorsWithoutGoalOnlyNote(t *testing
 	}
 	if strings.Contains(stderr.String(), "--skills") {
 		t.Errorf("expected no goal-only note when generation fails outright, got:\n%s", stderr.String())
+	}
+}
+
+func TestGenerate_QuickAndTUIFlagsParse(t *testing.T) {
+	// With --skills given and no --tui override, the gate always skips
+	// the picker regardless of -q/interactivity - this just locks that
+	// the flags parse cleanly alongside the rest of the surface.
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "-q", "goal"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "<task>") {
+		t.Errorf("expected normal generation to still work, got:\n%s", stdout.String())
+	}
+}
+
+func TestGenerate_TUI_StdoutAction(t *testing.T) {
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		in.Skills = []string{"diagnose"}
+		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "goal"}) // no -s -> interactive + bare -> TUI
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "pass/fail") {
+		t.Errorf("expected the TUI's chosen skill to be built into stdout, got:\n%s", stdout.String())
+	}
+}
+
+func TestGenerate_TUI_CancelProducesNoOutputAndNoError(t *testing.T) {
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		return tui.Result{Action: tui.ActionCancel}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "goal"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, want nil on cancel, stderr = %s", err, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("expected no stdout on cancel, got:\n%s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "cancel") {
+		t.Errorf("expected a cancellation note on stderr, got:\n%s", stderr.String())
+	}
+}
+
+func TestGenerate_TUI_CopyAction(t *testing.T) {
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		in.Skills = []string{"diagnose"}
+		return tui.Result{Inputs: in, Action: tui.ActionCopy}, nil
+	})()
+
+	var copied string
+	defer stubClipboard(t, func(s string) error { copied = s; return nil })()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "goal"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("expected no stdout when the TUI chose copy, got:\n%s", stdout.String())
+	}
+	if !strings.Contains(copied, "pass/fail") {
+		t.Errorf("expected the built prompt to reach the clipboard, got:\n%s", copied)
+	}
+}
+
+func TestGenerate_TUI_WriteAction(t *testing.T) {
+	outPath := filepath.Join(t.TempDir(), "from-tui.txt")
+
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		in.Skills = []string{"diagnose"}
+		return tui.Result{Inputs: in, Action: tui.ActionWrite, WritePath: outPath}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "goal"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+
+	written, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", outPath, err)
+	}
+	if !bytes.Contains(written, []byte("pass/fail")) {
+		t.Errorf("expected the built prompt in the written file, got:\n%s", written)
+	}
+	info, err := os.Stat(outPath)
+	if err != nil {
+		t.Fatalf("Stat(%s) error = %v", outPath, err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("file perms = %o, want 0600 (same guarantee as the flag-only -o path)", perm)
+	}
+}
+
+func TestGenerate_TUI_RequiresAGoalArgumentInThisRelease(t *testing.T) {
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		t.Fatal("runTUIFunc should not be called when no goal was given")
+		return tui.Result{}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic"}) // no goal, TTY, bare -> would-be TUI
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want an error: the TUI can't collect a goal yet")
+	}
+}
+
+func TestGenerate_QuickSkipsTUIEvenWhenInteractive(t *testing.T) {
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		t.Fatal("runTUIFunc should not be called when --quick is set")
+		return tui.Result{}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-q", "goal"}) // interactive, but --quick
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "<task>") {
+		t.Errorf("expected the flag path (goal-only) to run, got:\n%s", stdout.String())
+	}
+}
+
+func TestGenerate_TUIFlagForcesPickerEvenWithSkills(t *testing.T) {
+	called := false
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		called = true
+		if len(in.Skills) != 1 || in.Skills[0] != "diagnose" {
+			t.Errorf("expected --skills to pre-populate the TUI's initial Inputs, got %v", in.Skills)
+		}
+		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "--tui", "goal"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if !called {
+		t.Error("expected --tui to force runTUIFunc to be called even with --skills given")
+	}
+}
+
+func TestGenerate_TUIAndQuickTogetherErrors(t *testing.T) {
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		t.Fatal("runTUIFunc should not be called when --tui and --quick conflict")
+		return tui.Result{}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "--tui", "-q", "goal"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want an error: --tui and --quick are mutually exclusive")
 	}
 }

@@ -11,14 +11,25 @@ import (
 
 	"github.com/carlogy/prompt-smith/internal/prompt"
 	"github.com/carlogy/prompt-smith/internal/registry"
+	"github.com/carlogy/prompt-smith/internal/tui"
 )
 
 // copyToClipboard puts text on the system clipboard. A package variable
 // so tests can substitute a spy instead of touching the real clipboard.
 var copyToClipboard = clipboard.WriteAll
 
+// runTUIFunc launches the interactive skill picker. A package variable
+// so tests can substitute a spy instead of starting a real Bubble Tea
+// program (which would block reading real stdin).
+var runTUIFunc = tui.Run
+
 // errEmptyGoal is returned when no goal text was given.
 var errEmptyGoal = errors.New(`promptsmith: a goal is required, e.g. promptsmith "fix the flaky test"`)
+
+// errTUINeedsGoal is returned when the interactive picker would launch
+// but no goal was given: the picker can't collect one yet (a later
+// release adds inline goal/field editing).
+var errTUINeedsGoal = errors.New(`promptsmith: the interactive picker needs a goal argument in this release, e.g. promptsmith --tui "fix the flaky test"`)
 
 // generateOptions holds the root command's flag values.
 type generateOptions struct {
@@ -30,6 +41,8 @@ type generateOptions struct {
 	outputFormat string
 	toClipboard  bool
 	out          string
+	quick        bool
+	tui          bool
 }
 
 // addGenerateFlags registers the generate flags on cmd and wires its RunE.
@@ -44,6 +57,8 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 	cmd.Flags().StringVar(&opts.outputFormat, "output-format", "", "desired shape of the response")
 	cmd.Flags().BoolVarP(&opts.toClipboard, "copy", "c", false, "copy the prompt to the clipboard instead of stdout")
 	cmd.Flags().StringVarP(&opts.out, "out", "o", "", "write the prompt to this file instead of stdout")
+	cmd.Flags().BoolVarP(&opts.quick, "quick", "q", false, "never launch the interactive picker, even in a terminal")
+	cmd.Flags().BoolVar(&opts.tui, "tui", false, "launch the interactive picker even if --skills was given")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		return runGenerate(cmd, reg, opts, args)
@@ -52,6 +67,19 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 
 func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, args []string) error {
 	goal := strings.TrimSpace(strings.Join(args, " "))
+
+	useTUI, err := decideUseTUI(isInteractive(), opts.quick, opts.tui, len(opts.skills))
+	if err != nil {
+		return err
+	}
+
+	if useTUI {
+		if goal == "" {
+			return errTUINeedsGoal
+		}
+		return runInteractive(cmd, reg, opts, goal)
+	}
+
 	if goal == "" {
 		return errEmptyGoal
 	}
@@ -79,32 +107,92 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 	return deliver(cmd, opts, out)
 }
 
+// runInteractive launches the picker (seeded with whatever was already
+// supplied via flags/args) and applies whatever the user chose to do
+// with the result, through the same delivery helpers the flag-only path
+// uses.
+func runInteractive(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, goal string) error {
+	result, err := runTUIFunc(reg, prompt.Inputs{
+		Target:       opts.target,
+		Skills:       opts.skills,
+		Goal:         goal,
+		Context:      opts.context,
+		Constraints:  opts.constraints,
+		Role:         opts.role,
+		OutputFormat: opts.outputFormat,
+	})
+	if err != nil {
+		return err
+	}
+
+	if result.Action == tui.ActionCancel {
+		fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: canceled")
+		return nil
+	}
+
+	out, err := prompt.Build(reg, result.Inputs)
+	if err != nil {
+		return err
+	}
+
+	switch result.Action {
+	case tui.ActionCopy:
+		return copyAndConfirm(cmd, out)
+	case tui.ActionWrite:
+		return writeFile(result.WritePath, out)
+	default: // tui.ActionStdout
+		cmd.Println(out)
+		return nil
+	}
+}
+
 // deliver routes the assembled prompt to every requested destination
 // (file, clipboard), additively; if none were requested, it prints to
-// stdout.
+// stdout. This is the flag-only path's delivery model: unlike the TUI
+// (which offers exactly one action per confirm), --copy and --out can
+// both apply in the same invocation.
 func deliver(cmd *cobra.Command, opts *generateOptions, out string) error {
 	delivered := false
 
 	if opts.out != "" {
-		// 0600: a generated prompt can embed --context/--constraints or a
-		// goal containing sensitive detail (paths, internal notes); keep
-		// it owner-readable only (gosec G306).
-		if err := os.WriteFile(opts.out, []byte(out+"\n"), 0o600); err != nil {
-			return fmt.Errorf("promptsmith: write %s: %w", opts.out, err)
+		if err := writeFile(opts.out, out); err != nil {
+			return err
 		}
 		delivered = true
 	}
 
 	if opts.toClipboard {
-		if err := copyToClipboard(out); err != nil {
-			return fmt.Errorf("promptsmith: copy to clipboard: %w", err)
+		if err := copyAndConfirm(cmd, out); err != nil {
+			return err
 		}
-		fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: copied to clipboard")
 		delivered = true
 	}
 
 	if !delivered {
 		cmd.Println(out)
 	}
+	return nil
+}
+
+// writeFile persists out to path with owner-only permissions: a
+// generated prompt can embed --context/--constraints or a goal
+// containing sensitive detail (paths, internal notes), so it's kept
+// unreadable to other users (gosec G306). Shared by the flag-only and
+// TUI delivery paths so the guarantee is identical either way.
+func writeFile(path, out string) error {
+	if err := os.WriteFile(path, []byte(out+"\n"), 0o600); err != nil {
+		return fmt.Errorf("promptsmith: write %s: %w", path, err)
+	}
+	return nil
+}
+
+// copyAndConfirm copies out to the clipboard and confirms on stderr,
+// keeping stdout clean for scripting/piping. Shared by the flag-only and
+// TUI delivery paths.
+func copyAndConfirm(cmd *cobra.Command, out string) error {
+	if err := copyToClipboard(out); err != nil {
+		return fmt.Errorf("promptsmith: copy to clipboard: %w", err)
+	}
+	fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: copied to clipboard")
 	return nil
 }
