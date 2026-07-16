@@ -15,7 +15,7 @@ var (
 	previewTitleStyle   = lipgloss.NewStyle().Bold(true)
 )
 
-const footerHelp = "\u2191/\u2193 move \u00b7 space select \u00b7 enter=stdout \u00b7 c=copy \u00b7 w=write \u00b7 esc=cancel"
+const footerHelp = "\u2191/\u2193 move \u00b7 space select \u00b7 pgup/pgdn scroll preview \u00b7 enter=stdout \u00b7 c=copy \u00b7 w=write \u00b7 esc=cancel"
 
 // View satisfies tea.Model: a split-pane layout (skill picker left,
 // live preview right) plus a footer, or the save-filename prompt when
@@ -25,7 +25,9 @@ func (m model) View() string {
 		return m.viewFilenamePrompt()
 	}
 
-	leftPane, rightPane := renderPanes(m.viewSkillList(), m.viewPreview())
+	l := computeLayout(m.termWidth, m.termHeight)
+
+	leftPane, rightPane := renderPanes(m.viewSkillList(l.contentHeight), m.viewPreview())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 	return lipgloss.JoinVertical(lipgloss.Left, body, footerStyle.Render(footerHelp))
 }
@@ -40,13 +42,21 @@ func renderPanes(left, right string) (string, string) {
 	return paneStyle.Height(h).Render(left), paneStyle.Height(h).Render(right)
 }
 
-func (m model) viewSkillList() string {
-	var b strings.Builder
-	b.WriteString("Skills\n")
-	for i, it := range m.items {
+// viewSkillList renders the "Skills" title followed by a windowed
+// slice of items (visibleWindow) sized to fit windowHeight content
+// rows, scrolling to keep the cursor visible as it moves.
+func (m model) viewSkillList(windowHeight int) string {
+	// -1: the "Skills" title consumes one row of the pane's content
+	// budget, leaving windowHeight-1 rows for the scrollable list.
+	listHeight := windowHeight - 1
+	visible, offset := visibleWindow(m.items, m.cursor, listHeight)
+
+	lines := make([]string, 0, len(visible)+1)
+	lines = append(lines, "Skills")
+	for i, it := range visible {
+		globalIndex := offset + i
 		if it.isHeader {
-			b.WriteString(categoryHeaderStyle.Render(strings.ToUpper(it.category)))
-			b.WriteString("\n")
+			lines = append(lines, categoryHeaderStyle.Render(strings.ToUpper(it.category)))
 			continue
 		}
 
@@ -55,24 +65,38 @@ func (m model) viewSkillList() string {
 			mark = "[x]"
 		}
 		line := fmt.Sprintf("%s %s", mark, it.skill.ID)
-		if i == m.cursor {
-			b.WriteString(cursorLineStyle.Render("\u203a " + line))
+		if globalIndex == m.cursor {
+			line = cursorLineStyle.Render("\u203a " + line)
 		} else {
-			b.WriteString("  " + line)
+			line = "  " + line
 		}
-		b.WriteString("\n")
+		lines = append(lines, line)
 	}
-	return b.String()
+	// strings.Join, not a trailing "\n" after every line: appending "\n"
+	// after the last line too would add a phantom empty row that
+	// lipgloss.Height counts, inflating this pane 1 line taller than
+	// viewPreview (found via the total-height regression test - the two
+	// panes must produce exactly matching heights for a given budget).
+	return strings.Join(lines, "\n")
 }
 
 func (m model) viewPreview() string {
-	title := previewTitleStyle.Render(fmt.Sprintf("Preview (%s)", m.target))
-	if m.previewErr != nil {
-		return title + "\n\nerror: " + m.previewErr.Error()
+	title := fmt.Sprintf("Preview (%s)", m.target)
+	if overflowing := !(m.previewVP.AtTop() && m.previewVP.AtBottom()); overflowing {
+		title = fmt.Sprintf("%s \u2014 \u2191\u2193 %d%%", title, int(m.previewVP.ScrollPercent()*100))
 	}
-	return title + "\n\n" + highlightTags(m.preview)
+	// Single newline, no blank separator line - matches viewSkillList's
+	// "Skills\n" pattern so both panes' title overhead is exactly 1 row
+	// and previewVP.Height (set to contentHeight-1) covers the rest.
+	return previewTitleStyle.Render(title) + "\n" + m.previewVP.View()
 }
 
 func (m model) viewFilenamePrompt() string {
-	return fmt.Sprintf("Save prompt as:\n%s\n(enter to confirm, esc to cancel)", m.filenameInput.View())
+	return fmt.Sprintf(
+		"Save prompt as:\n%s\n(enter to confirm, esc to cancel)\n\n"+
+			"Relative paths save to the current directory (where promptsmith\n"+
+			"was run); use an absolute path to save elsewhere. The parent\n"+
+			"directory must already exist; \"~\" is not expanded.",
+		m.filenameInput.View(),
+	)
 }

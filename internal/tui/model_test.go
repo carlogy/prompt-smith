@@ -298,8 +298,8 @@ func TestView_ContainsSkillsPreviewAndFooterHints(t *testing.T) {
 	for _, want := range []string{
 		"diagnose", "verify", // skills listed
 		"DEBUGGING", "TESTING", // category headers
-		"diagnose body",                    // live preview content
-		"enter", "copy", "write", "cancel", // footer hints
+		"diagnose body",                                 // live preview content
+		"enter", "copy", "write", "cancel", "pgup/pgdn", // footer hints
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("View() missing %q, got:\n%s", want, got)
@@ -330,5 +330,65 @@ func TestView_FilenameModeShowsSavePrompt(t *testing.T) {
 	}
 	if !strings.Contains(got, m2.filenameInput.Value()) {
 		t.Errorf("expected the view to show the current filename input value, got:\n%s", got)
+	}
+}
+
+func TestModel_WindowSizeMsgUpdatesDimensions(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m2 := updated.(model)
+
+	if m2.termWidth != 100 || m2.termHeight != 30 {
+		t.Errorf("termWidth/termHeight = %d/%d, want 100/30", m2.termWidth, m2.termHeight)
+	}
+}
+
+func TestView_SkillListScrollsToKeepCursorVisible(t *testing.T) {
+	// fixtureRegistry on "generic" produces exactly 4 items:
+	// [header:debugging, diagnose, header:testing, verify]
+	// (agent-only is excluded: unsupported on generic). Height=6 ->
+	// computeLayout's contentHeight=3 -> a 2-row skill list window
+	// (contentHeight minus the "Skills" title line), so this small
+	// fixture is enough to force real scrolling without a bigger one.
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 6})
+	m2 := updated.(model)
+
+	got1 := stripANSI(m2.View())
+	if !strings.Contains(got1, "diagnose") {
+		t.Errorf("expected diagnose visible at the top of a fresh model, got:\n%s", got1)
+	}
+	if strings.Contains(got1, "verify") {
+		t.Errorf("expected verify to be scrolled out of view initially, got:\n%s", got1)
+	}
+
+	updated2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyDown}) // cursor -> verify
+	m3 := updated2.(model)
+
+	got2 := stripANSI(m3.View())
+	if !strings.Contains(got2, "verify") {
+		t.Errorf("expected verify to scroll into view once selected, got:\n%s", got2)
+	}
+	if strings.Contains(got2, "diagnose") {
+		t.Errorf("expected diagnose to scroll out of view once verify is selected, got:\n%s", got2)
+	}
+}
+
+func TestView_FilenamePromptDocumentsSavePathBehavior(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	m2 := updated.(model)
+
+	got := stripANSI(m2.View())
+	for _, want := range []string{"current directory", "absolute path"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected the filename prompt to document save-path behavior (%q), got:\n%s", want, got)
+		}
 	}
 }

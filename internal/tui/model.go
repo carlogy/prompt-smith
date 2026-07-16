@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/carlogy/prompt-smith/internal/prompt"
@@ -21,7 +22,7 @@ type item struct {
 
 // model is the Bubble Tea model for the skill picker + live preview.
 // goal/context/constraints/role/outputFormat are fixed from the initial
-// Inputs in P3a (inline editing lands in P3b); only skill selection
+// Inputs (inline editing lands in a later phase); only skill selection
 // changes, which recomputes preview via prompt.Build.
 type model struct {
 	reg    *registry.Registry
@@ -29,14 +30,20 @@ type model struct {
 	items  []item
 	cursor int
 
+	// termWidth/termHeight are set from tea.WindowSizeMsg; zero until
+	// the first one arrives, in which case computeLayout falls back to
+	// a usable default rather than a degenerate size.
+	termWidth  int
+	termHeight int
+
 	goal         string
 	context      string
 	constraints  string
 	role         string
 	outputFormat string
 
-	preview    string
-	previewErr error
+	preview   string
+	previewVP viewport.Model
 
 	enteringFilename bool
 	filenameInput    textinput.Model
@@ -51,6 +58,7 @@ type model struct {
 // preview reflects the pre-selected skills from the start.
 func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 	items := buildItems(reg, initial.Target, initial.Skills)
+	l := computeLayout(0, 0) // falls back to a usable default until the first WindowSizeMsg
 	m := model{
 		reg:          reg,
 		target:       initial.Target,
@@ -61,6 +69,7 @@ func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 		constraints:  initial.Constraints,
 		role:         initial.Role,
 		outputFormat: initial.OutputFormat,
+		previewVP:    viewport.New(l.rightContentWidth, l.contentHeight-1),
 	}
 	m.recomputePreview()
 	return m
@@ -109,11 +118,29 @@ func (m model) Init() tea.Cmd {
 // populated for the caller to act on.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.termWidth, m.termHeight = msg.Width, msg.Height
+		l := computeLayout(m.termWidth, m.termHeight)
+		m.previewVP.Width = l.rightContentWidth
+		m.previewVP.Height = l.contentHeight - 1 // -1: the "Preview" title line
+		return m, nil
 	case tea.KeyMsg:
 		if m.enteringFilename {
 			return m.updateFilenameInput(msg)
 		}
 		return m.updatePicker(msg)
+	case tea.MouseMsg:
+		// Deliberately not delegated to previewVP.Update(msg): its
+		// default keymap also binds Up/Down, which must stay reserved
+		// for the skill cursor. Wheel events are handled explicitly
+		// instead, scoped to just wheel up/down.
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.previewVP.ScrollUp(mouseWheelLines)
+		case tea.MouseButtonWheelDown:
+			m.previewVP.ScrollDown(mouseWheelLines)
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -125,6 +152,10 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = prevSelectable(m.items, m.cursor)
 	case tea.KeyDown:
 		m.cursor = nextSelectable(m.items, m.cursor)
+	case tea.KeyPgUp:
+		m.previewVP.PageUp()
+	case tea.KeyPgDown:
+		m.previewVP.PageDown()
 	case tea.KeySpace:
 		if !m.items[m.cursor].isHeader {
 			// Update has a value receiver, but m.items is a slice:
@@ -210,11 +241,23 @@ func (m model) selectedIDs() []string {
 }
 
 // recomputePreview rebuilds the prompt from the current selection and
-// fixed fields via the same tested engine the non-interactive path uses.
+// fixed fields via the same tested engine the non-interactive path uses,
+// refreshes the preview viewport's content, and resets its scroll to
+// the top - a stale scroll offset over new content would be confusing.
 func (m *model) recomputePreview() {
 	out, err := prompt.Build(m.reg, m.currentInputs())
-	m.preview, m.previewErr = out, err
+	m.preview = out
+
+	content := highlightTags(m.preview)
+	if err != nil {
+		content = "error: " + err.Error()
+	}
+	m.previewVP.SetContent(content)
+	m.previewVP.GotoTop()
 }
+
+// mouseWheelLines is how many lines one wheel tick scrolls the preview.
+const mouseWheelLines = 3
 
 func prevSelectable(items []item, from int) int {
 	for i := from - 1; i >= 0; i-- {
