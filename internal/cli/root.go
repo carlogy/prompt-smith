@@ -38,7 +38,12 @@ a set of methodology skills, and a target harness (generic, opencode, claude-cod
 
 No LLM runs at generation time: the prompt is assembled from a built-in
 registry of skills and per-target rendering rules.`,
-		Args: cobra.ArbitraryArgs,
+		Example: `  promptsmith "fix the flaky checkout test"
+  promptsmith -t opencode -s diagnose,verify "fix the flaky checkout test"
+  promptsmith -s diagnose -c "fix the bug"          # copy to clipboard
+  promptsmith --tui                                 # interactive picker`,
+		Version: buildVersion(), // enables the --version flag cobra provides automatically
+		Args:    cobra.ArbitraryArgs,
 		// We print errors ourselves in Execute (and tests read the
 		// returned error directly), so don't let cobra double-print.
 		SilenceUsage:  true,
@@ -48,6 +53,7 @@ registry of skills and per-target rendering rules.`,
 
 	root.AddCommand(newListCmd(reg))
 	root.AddCommand(newValidateCmd(reg))
+	root.AddCommand(newVersionCmd())
 
 	return root
 }

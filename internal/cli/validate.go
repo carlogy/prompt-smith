@@ -13,6 +13,7 @@ func newValidateCmd(reg *registry.Registry) *cobra.Command {
 	return &cobra.Command{
 		Use:           "validate",
 		Short:         "Validate the embedded skill registry",
+		Example:       `  promptsmith validate`,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,

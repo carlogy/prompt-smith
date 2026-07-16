@@ -497,3 +497,46 @@ func TestGenerate_TUIAndQuickTogetherErrors(t *testing.T) {
 		t.Fatal("Execute() error = nil, want an error: --tui and --quick are mutually exclusive")
 	}
 }
+
+func TestGenerate_ShortAliasesMatchLongForms(t *testing.T) {
+	cases := []struct {
+		name        string
+		short       string
+		long        string
+		value       string
+		wantSection string
+	}{
+		{"role", "-r", "--role", "a senior engineer", "role"},
+		{"output-format", "-f", "--output-format", "a diff", "output_format"},
+		{"context", "-x", "--context", "some context", "context"},
+		{"constraints", "-C", "--constraints", "no new deps", "constraints"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			run := func(flag string) string {
+				reg := testRegistry(t)
+				root := newRootCmd(reg)
+				var stdout, stderr bytes.Buffer
+				root.SetOut(&stdout)
+				root.SetErr(&stderr)
+				root.SetArgs([]string{"-t", "generic", "-s", "diagnose", flag, tc.value, "goal"})
+				if err := root.Execute(); err != nil {
+					t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+				}
+				return stdout.String()
+			}
+
+			short := run(tc.short)
+			long := run(tc.long)
+			if short != long {
+				t.Errorf("%s: short-flag output != long-flag output\nshort: %q\nlong:  %q", tc.name, short, long)
+			}
+
+			wantTag := "<" + tc.wantSection + ">"
+			if !strings.Contains(short, wantTag) {
+				t.Errorf("%s: expected output to contain %q, got:\n%s", tc.name, wantTag, short)
+			}
+		})
+	}
+}

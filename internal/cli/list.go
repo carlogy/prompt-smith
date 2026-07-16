@@ -16,8 +16,10 @@ func newListCmd(reg *registry.Registry) *cobra.Command {
 	var target string
 
 	cmd := &cobra.Command{
-		Use:           "list",
-		Short:         "List available skills by category and target",
+		Use:   "list",
+		Short: "List available skills by category and target",
+		Example: `  promptsmith list
+  promptsmith list -t claude-code`,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
