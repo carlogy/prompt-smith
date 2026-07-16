@@ -343,3 +343,27 @@ func TestFocus_ConfirmActionsWorkOnceGoalIsTyped(t *testing.T) {
 		t.Errorf("Action = %v, want ActionStdout", m3.result.Action)
 	}
 }
+
+func TestView_ExactlyOneFocusMarkerAcrossAllZones(t *testing.T) {
+	// The skill cursor and the focused field/preview title both used the
+	// same \u203a marker unconditionally, so e.g. focusing a field left
+	// the skill cursor's marker showing too - looking "active" when it
+	// wasn't (the bug reported after smoke testing: up/down appeared not
+	// to select skills, because focus was actually on a field the whole
+	// time, and nothing on screen disambiguated that). The invariant:
+	// exactly one \u203a marker on screen, always on the truly focused
+	// zone, checked across every zone in the Tab cycle.
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 20})
+	cur := updated.(model)
+
+	for i := 0; i < len(focusCycle); i++ {
+		got := stripANSI(cur.View())
+		if n := strings.Count(got, "\u203a"); n != 1 {
+			t.Errorf("focus=%v: expected exactly one \u203a marker, got %d in:\n%s", cur.focus, n, got)
+		}
+		u, _ := cur.Update(tea.KeyMsg{Type: tea.KeyTab})
+		cur = u.(model)
+	}
+}

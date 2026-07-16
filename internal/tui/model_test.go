@@ -302,8 +302,8 @@ func TestView_ContainsSkillsPreviewAndFooterHints(t *testing.T) {
 	for _, want := range []string{
 		"diagnose", "verify", // skills listed
 		"DEBUGGING", "TESTING", // category headers
-		"diagnose body",                                 // live preview content
-		"enter", "copy", "write", "cancel", "pgup/pgdn", // footer hints
+		"diagnose body",                              // live preview content
+		"enter", "copy", "write", "cancel", "select", // footer hints (skills-focused; pgup/pgdn is preview-only as of P3d)
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("View() missing %q, got:\n%s", want, got)

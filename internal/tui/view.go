@@ -9,14 +9,36 @@ import (
 )
 
 var (
+	// activeColor highlights whatever currently has focus: the cursor
+	// line/row (skill cursor, focused field, preview title) and the
+	// border of whichever pane (left: skills+fields, right: preview)
+	// contains it. Matches the bright-cyan accent already used for tag
+	// highlighting in the preview (P1's highlightTags).
+	activeColor = lipgloss.Color("14")
+
 	categoryHeaderStyle = lipgloss.NewStyle().Bold(true).Underline(true)
-	cursorLineStyle     = lipgloss.NewStyle().Bold(true)
+	cursorLineStyle     = lipgloss.NewStyle().Bold(true).Foreground(activeColor)
 	paneStyle           = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
+	focusedPaneStyle    = paneStyle.BorderForeground(activeColor)
 	footerStyle         = lipgloss.NewStyle().Faint(true)
 	previewTitleStyle   = lipgloss.NewStyle().Bold(true)
 )
 
-const footerHelp = "\u2191/\u2193 move \u00b7 space select \u00b7 pgup/pgdn scroll preview \u00b7 enter=stdout \u00b7 c=copy \u00b7 w=write \u00b7 esc=cancel"
+// footerHelpFor returns the keybinding hint for the currently-focused
+// zone: what up/down (and other zone-specific keys) actually do right
+// now, since that's context-dependent - plus the always-available
+// confirm/cancel keys where they apply. All five text fields share
+// identical mechanics, so they all get the same hint.
+func footerHelpFor(zone focusZone) string {
+	switch zone {
+	case focusSkills:
+		return "\u2191/\u2193 move \u00b7 space select \u00b7 tab next \u00b7 enter=stdout \u00b7 c=copy \u00b7 w=write \u00b7 esc=cancel"
+	case focusPreview:
+		return "\u2191/\u2193 pgup/pgdn scroll \u00b7 tab next \u00b7 enter=stdout \u00b7 c=copy \u00b7 w=write \u00b7 esc=cancel"
+	default: // a text field
+		return "type to edit \u00b7 tab next \u00b7 esc unfocus"
+	}
+}
 
 // fieldLabelWidth is padded to the longest label ("Constraints") so
 // every field row's input starts at the same column.
@@ -33,9 +55,11 @@ func (m model) View() string {
 	l := computeLayout(m.termWidth, m.termHeight)
 
 	left := m.viewSkillList(l.skillsHeight, l.leftContentWidth) + "\n" + m.viewFields(l.leftContentWidth)
-	leftPane, rightPane := renderPanes(left, m.viewPreview())
+	// The left pane holds both skills and every field; only focusPreview
+	// puts focus in the right pane instead.
+	leftPane, rightPane := renderPanes(left, m.viewPreview(), m.focus != focusPreview)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
-	return lipgloss.JoinVertical(lipgloss.Left, body, footerStyle.Render(footerHelp))
+	return lipgloss.JoinVertical(lipgloss.Left, body, footerStyle.Render(footerHelpFor(m.focus)))
 }
 
 // renderPanes wraps left and right in the bordered pane style, first
@@ -43,15 +67,33 @@ func (m model) View() string {
 // row. lipgloss.JoinHorizontal pads shorter *rendered* blocks with
 // blank, borderless filler rather than extending the border - so the
 // padding has to happen before the border is applied, not after.
-func renderPanes(left, right string) (string, string) {
+// renderPanes wraps left and right in the bordered pane style, first
+// equalizing their content height so both borders close on the same
+// row. lipgloss.JoinHorizontal pads shorter *rendered* blocks with
+// blank, borderless filler rather than extending the border - so the
+// padding has to happen before the border is applied, not after.
+// Whichever pane currently holds focus (leftFocused) gets the colored
+// focusedPaneStyle border instead of the plain one, so it's visually
+// obvious which column focus is in even before reading the \u203a
+// marker inside it.
+func renderPanes(left, right string, leftFocused bool) (string, string) {
 	h := max(lipgloss.Height(left), lipgloss.Height(right))
-	return paneStyle.Height(h).Render(left), paneStyle.Height(h).Render(right)
+	leftStyle, rightStyle := paneStyle, paneStyle
+	if leftFocused {
+		leftStyle = focusedPaneStyle
+	} else {
+		rightStyle = focusedPaneStyle
+	}
+	return leftStyle.Height(h).Render(left), rightStyle.Height(h).Render(right)
 }
 
 // viewSkillList renders the "Skills" title followed by a windowed
 // slice of items (visibleWindow) sized to fit windowHeight content
 // rows, scrolling to keep the cursor visible as it moves, with a
-// gutter scrollbar in the last column of width.
+// gutter scrollbar in the last column of width. The cursor row is only
+// marked with \u203a when skills is the focused zone - otherwise it
+// would look active (and up/down would appear broken, since they're
+// actually routed elsewhere) even when it isn't focused.
 func (m model) viewSkillList(windowHeight, width int) string {
 	// -1: the "Skills" title consumes one row of the pane's content
 	// budget, leaving windowHeight-1 rows for the scrollable list.
@@ -71,7 +113,7 @@ func (m model) viewSkillList(windowHeight, width int) string {
 			mark = "[x]"
 		}
 		line := fmt.Sprintf("%s %s", mark, it.skill.ID)
-		if globalIndex == m.cursor {
+		if globalIndex == m.cursor && m.focus == focusSkills {
 			line = cursorLineStyle.Render("\u203a " + line)
 		} else {
 			line = "  " + line

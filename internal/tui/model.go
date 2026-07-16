@@ -79,17 +79,18 @@ func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 	// second physical row (found via
 	// TestView_FieldRowsDoNotWrapWithLongValues). Clearing it removes
 	// both problems at once.
-	newField := func(value string) textinput.Model {
+	newField := func(value, placeholder string) textinput.Model {
 		ti := textinput.New()
 		ti.Prompt = ""
+		ti.Placeholder = placeholder
 		ti.SetValue(value)
 		return ti
 	}
-	goalInput := newField(initial.Goal)
-	contextInput := newField(initial.Context)
-	constraintsInput := newField(initial.Constraints)
-	roleInput := newField(initial.Role)
-	outputFormatInput := newField(initial.OutputFormat)
+	goalInput := newField(initial.Goal, "what to do")
+	contextInput := newField(initial.Context, "relevant background")
+	constraintsInput := newField(initial.Constraints, "must respect")
+	roleInput := newField(initial.Role, "persona to adopt")
+	outputFormatInput := newField(initial.OutputFormat, "response shape")
 
 	m := model{
 		reg:               reg,

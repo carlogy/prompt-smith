@@ -13,7 +13,7 @@ func TestRenderPanes_EqualizesHeightSoBordersAlign(t *testing.T) {
 	left := "one\ntwo"
 	right := "one\ntwo\nthree\nfour\nfive"
 
-	leftBox, rightBox := renderPanes(left, right)
+	leftBox, rightBox := renderPanes(left, right, true)
 
 	lh, rh := lipgloss.Height(leftBox), lipgloss.Height(rightBox)
 	if lh != rh {
@@ -26,12 +26,12 @@ func TestRenderPanes_BothOrderingsEqualizeHeight(t *testing.T) {
 	shortC := "a"
 	tallC := "a\nb\nc\nd"
 
-	b1, b2 := renderPanes(shortC, tallC)
+	b1, b2 := renderPanes(shortC, tallC, true)
 	if lipgloss.Height(b1) != lipgloss.Height(b2) {
 		t.Errorf("short-then-tall: heights differ: %d vs %d", lipgloss.Height(b1), lipgloss.Height(b2))
 	}
 
-	b3, b4 := renderPanes(tallC, shortC)
+	b3, b4 := renderPanes(tallC, shortC, false)
 	if lipgloss.Height(b3) != lipgloss.Height(b4) {
 		t.Errorf("tall-then-short: heights differ: %d vs %d", lipgloss.Height(b3), lipgloss.Height(b4))
 	}
