@@ -1,6 +1,7 @@
 package registry_test
 
 import (
+	"reflect"
 	"testing"
 	"testing/fstest"
 
@@ -57,6 +58,65 @@ func TestLoadFS_ParsesMinimalRegistry(t *testing.T) {
 	}
 	if len(reg.Categories) != 1 || reg.Categories[0] != "debugging" {
 		t.Errorf("Categories = %v", reg.Categories)
+	}
+}
+
+func TestRegistry_SortSkills(t *testing.T) {
+	reg := &registry.Registry{Categories: []string{"debugging", "testing"}}
+	skills := []registry.Skill{
+		{ID: "verify", Category: "testing", Order: 20},
+		{ID: "diagnose", Category: "debugging", Order: 10},
+		{ID: "audit", Category: "testing", Order: 10},
+		{ID: "check", Category: "testing", Order: 10},
+	}
+
+	reg.SortSkills(skills)
+
+	var ids []string
+	for _, sk := range skills {
+		ids = append(ids, sk.ID)
+	}
+	// diagnose: category order wins (debugging < testing).
+	// audit, check: same category+order, id tiebreak (audit < check).
+	// verify: same category, higher order, sorts last.
+	want := []string{"diagnose", "audit", "check", "verify"}
+	if !reflect.DeepEqual(ids, want) {
+		t.Errorf("SortSkills order = %v, want %v", ids, want)
+	}
+}
+
+func TestRegistry_SupportsTarget(t *testing.T) {
+	reg := &registry.Registry{
+		Categories: []string{"debugging"},
+		Skills: []registry.Skill{
+			{ID: "diagnose", Category: "debugging", Body: "inline text"},
+			{ID: "agent-only", Category: "debugging"}, // no Body
+		},
+		Targets: map[string]registry.TargetConfig{
+			"generic":  {ID: "generic", SkillMode: "inline"},
+			"opencode": {ID: "opencode", SkillMode: "reference"},
+		},
+	}
+
+	cases := []struct {
+		skillID, target string
+		want            bool
+	}{
+		{"diagnose", "generic", true},
+		{"agent-only", "generic", false}, // no body -> unsupported on inline target
+		{"diagnose", "opencode", true},
+		{"agent-only", "opencode", true},      // reference-mode targets: always supported
+		{"diagnose", "does-not-exist", false}, // unknown target
+	}
+
+	for _, tc := range cases {
+		sk, ok := reg.SkillByID(tc.skillID)
+		if !ok {
+			t.Fatalf("fixture skill %q not found", tc.skillID)
+		}
+		if got := reg.SupportsTarget(sk, tc.target); got != tc.want {
+			t.Errorf("SupportsTarget(%s, %s) = %v, want %v", tc.skillID, tc.target, got, tc.want)
+		}
 	}
 }
 

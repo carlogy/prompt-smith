@@ -2,6 +2,8 @@
 // the embedded registry data (see Load).
 package registry
 
+import "sort"
+
 // Registry is the fully-loaded set of skills, categories, and target
 // configurations that prompt.Build assembles from.
 type Registry struct {
@@ -67,4 +69,38 @@ func (r *Registry) CategoryIndex() map[string]int {
 		idx[c] = i
 	}
 	return idx
+}
+
+// SortSkills sorts skills in place by canonical order: each skill's
+// category position (per Categories), then its Order weight, then its id
+// as a final, stable tiebreak. This is the single canonical ordering used
+// both when rendering a selected subset (see prompt.Build) and when
+// listing the full registry.
+func (r *Registry) SortSkills(skills []Skill) {
+	catIndex := r.CategoryIndex()
+	sort.SliceStable(skills, func(i, j int) bool {
+		a, b := skills[i], skills[j]
+		if ai, bi := catIndex[a.Category], catIndex[b.Category]; ai != bi {
+			return ai < bi
+		}
+		if a.Order != b.Order {
+			return a.Order < b.Order
+		}
+		return a.ID < b.ID
+	})
+}
+
+// SupportsTarget reports whether sk can render on the given target: the
+// "inline" mode target requires a non-empty Body; "reference" mode
+// targets are always supported (a reference snippet is derived from
+// metadata regardless). An unknown target is never supported.
+func (r *Registry) SupportsTarget(sk Skill, targetID string) bool {
+	target, ok := r.Targets[targetID]
+	if !ok {
+		return false
+	}
+	if target.SkillMode == "reference" {
+		return true
+	}
+	return sk.Body != ""
 }

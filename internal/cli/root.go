@@ -7,11 +7,20 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/carlogy/prompt-smith/internal/registry"
 )
 
-// Execute runs the root command and exits the process on error.
+// Execute loads the registry, builds the command tree, and runs it,
+// exiting the process on error.
 func Execute() {
-	if err := newRootCmd().Execute(); err != nil {
+	reg, err := registry.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	if err := newRootCmd(reg).Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -20,11 +29,7 @@ func Execute() {
 // newRootCmd builds the promptsmith root command. The root command itself
 // performs prompt generation (e.g. `promptsmith "fix the flaky test"`);
 // "list" and "validate" are explicit subcommands.
-//
-// Generation is wired in a later phase (internal/assemble); for now the
-// root command exists so the CLI surface, help text, and subcommands are
-// in place and testable.
-func newRootCmd() *cobra.Command {
+func newRootCmd(reg *registry.Registry) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "promptsmith [flags] <goal>",
 		Short: "Generate portable, skill-aware prompts for any LLM or agent harness",
@@ -32,14 +37,17 @@ func newRootCmd() *cobra.Command {
 a set of methodology skills, and a target harness (generic, opencode, claude-code).
 
 No LLM runs at generation time: the prompt is assembled from a built-in
-registry of skills and a shared template with per-target deltas.`,
-		Args:         cobra.ArbitraryArgs,
-		SilenceUsage: true,
-		RunE:         runGenerate,
+registry of skills and per-target rendering rules.`,
+		Args: cobra.ArbitraryArgs,
+		// We print errors ourselves in Execute (and tests read the
+		// returned error directly), so don't let cobra double-print.
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
+	addGenerateFlags(root, reg)
 
-	root.AddCommand(newListCmd())
-	root.AddCommand(newValidateCmd())
+	root.AddCommand(newListCmd(reg))
+	root.AddCommand(newValidateCmd(reg))
 
 	return root
 }

@@ -117,8 +117,8 @@ func buildTools(target registry.TargetConfig) string {
 }
 
 // resolveSkills looks up each id (deduping repeats, preserving first
-// occurrence), then sorts the result by canonical category order, then
-// by each skill's Order weight, then by id as a final, stable tiebreak.
+// occurrence), then sorts the result via the registry's canonical
+// ordering (category position, then weight, then id).
 func resolveSkills(reg *registry.Registry, ids []string) ([]registry.Skill, error) {
 	seen := make(map[string]bool, len(ids))
 	skills := make([]registry.Skill, 0, len(ids))
@@ -135,18 +135,7 @@ func resolveSkills(reg *registry.Registry, ids []string) ([]registry.Skill, erro
 		skills = append(skills, sk)
 	}
 
-	catIndex := reg.CategoryIndex()
-	sort.SliceStable(skills, func(i, j int) bool {
-		a, b := skills[i], skills[j]
-		if ai, bi := catIndex[a.Category], catIndex[b.Category]; ai != bi {
-			return ai < bi
-		}
-		if a.Order != b.Order {
-			return a.Order < b.Order
-		}
-		return a.ID < b.ID
-	})
-
+	reg.SortSkills(skills)
 	return skills, nil
 }
 
