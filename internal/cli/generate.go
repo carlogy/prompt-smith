@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -16,6 +17,9 @@ import (
 // so tests can substitute a spy instead of touching the real clipboard.
 var copyToClipboard = clipboard.WriteAll
 
+// errEmptyGoal is returned when no goal text was given.
+var errEmptyGoal = errors.New(`promptsmith: a goal is required, e.g. promptsmith "fix the flaky test"`)
+
 // generateOptions holds the root command's flag values.
 type generateOptions struct {
 	target       string
@@ -24,7 +28,7 @@ type generateOptions struct {
 	constraints  string
 	role         string
 	outputFormat string
-	copy         bool
+	toClipboard  bool
 	out          string
 }
 
@@ -38,7 +42,7 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 	cmd.Flags().StringVar(&opts.constraints, "constraints", "", "constraints the solution must respect")
 	cmd.Flags().StringVar(&opts.role, "role", "", "role/persona to open the prompt with")
 	cmd.Flags().StringVar(&opts.outputFormat, "output-format", "", "desired shape of the response")
-	cmd.Flags().BoolVarP(&opts.copy, "copy", "c", false, "copy the prompt to the clipboard instead of stdout")
+	cmd.Flags().BoolVarP(&opts.toClipboard, "copy", "c", false, "copy the prompt to the clipboard instead of stdout")
 	cmd.Flags().StringVarP(&opts.out, "out", "o", "", "write the prompt to this file instead of stdout")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -49,11 +53,7 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, args []string) error {
 	goal := strings.TrimSpace(strings.Join(args, " "))
 	if goal == "" {
-		return fmt.Errorf(`promptsmith: a goal is required, e.g. promptsmith "fix the flaky test"`)
-	}
-
-	if len(opts.skills) == 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: no --skills given; generating a goal-only prompt (interactive skill picker arrives in a later release)")
+		return errEmptyGoal
 	}
 
 	out, err := prompt.Build(reg, prompt.Inputs{
@@ -69,6 +69,13 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 		return err
 	}
 
+	// Note the goal-only fallback only once generation has actually
+	// succeeded - an invalid target/skill should just error, not also
+	// claim a goal-only prompt was generated.
+	if len(opts.skills) == 0 {
+		fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: no --skills given; generating a goal-only prompt (interactive skill picker arrives in a later release)")
+	}
+
 	return deliver(cmd, opts, out)
 }
 
@@ -79,13 +86,16 @@ func deliver(cmd *cobra.Command, opts *generateOptions, out string) error {
 	delivered := false
 
 	if opts.out != "" {
-		if err := os.WriteFile(opts.out, []byte(out+"\n"), 0o644); err != nil {
+		// 0600: a generated prompt can embed --context/--constraints or a
+		// goal containing sensitive detail (paths, internal notes); keep
+		// it owner-readable only (gosec G306).
+		if err := os.WriteFile(opts.out, []byte(out+"\n"), 0o600); err != nil {
 			return fmt.Errorf("promptsmith: write %s: %w", opts.out, err)
 		}
 		delivered = true
 	}
 
-	if opts.copy {
+	if opts.toClipboard {
 		if err := copyToClipboard(out); err != nil {
 			return fmt.Errorf("promptsmith: copy to clipboard: %w", err)
 		}

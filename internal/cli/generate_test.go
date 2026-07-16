@@ -158,6 +158,14 @@ func TestGenerate_OutWritesFileAndSuppressesStdout(t *testing.T) {
 	if !bytes.Contains(written, []byte("pass/fail")) {
 		t.Errorf("file contents missing diagnose body, got:\n%s", written)
 	}
+
+	info, err := os.Stat(outPath)
+	if err != nil {
+		t.Fatalf("Stat(%s) error = %v", outPath, err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("file perms = %o, want 0600 (prompt content may be sensitive - see gosec G306)", perm)
+	}
 }
 
 func TestGenerate_CopyUsesClipboardSeamAndSuppressesStdout(t *testing.T) {
@@ -212,5 +220,22 @@ func TestGenerate_NoSkillsProducesGoalOnlyPromptWithStderrNote(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--skills") {
 		t.Errorf("expected a stderr note mentioning --skills, got:\n%s", stderr.String())
+	}
+}
+
+func TestGenerate_UnknownTargetWithNoSkills_ErrorsWithoutGoalOnlyNote(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "does-not-exist", "goal"}) // no -s, and target is invalid
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want an error for an unknown target")
+	}
+	if strings.Contains(stderr.String(), "--skills") {
+		t.Errorf("expected no goal-only note when generation fails outright, got:\n%s", stderr.String())
 	}
 }
