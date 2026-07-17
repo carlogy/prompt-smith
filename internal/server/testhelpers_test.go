@@ -6,14 +6,22 @@ import (
 	"net/http"
 	"net/http/httptest"
 
+	"github.com/carlogy/prompt-smith/internal/prompt"
 	"github.com/carlogy/prompt-smith/internal/registry"
 )
 
 // testApp builds an application against a small synthetic registry -
 // same fixture style as internal/registry's own tests - plus a
 // discard logger so tests never spam output for expected error paths
-// (e.g. a 500 test).
+// (e.g. a 500 test), and no seeded initial values.
 func testApp() *application {
+	return testAppWithInitial(prompt.Inputs{})
+}
+
+// testAppWithInitial is testApp, but with a custom seed for the index
+// page - used by tests that verify --ui's initial-value seeding (see
+// page_test.go).
+func testAppWithInitial(initial prompt.Inputs) *application {
 	reg := &registry.Registry{
 		Categories: []string{"debugging", "testing"},
 		Skills: []registry.Skill{
@@ -27,7 +35,15 @@ func testApp() *application {
 		},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return newApplication(reg, logger)
+	app, err := newApplication(reg, logger, initial)
+	if err != nil {
+		// The embedded template is committed alongside this code, so a
+		// parse failure here is a build-time bug, not a runtime
+		// condition any test is meant to exercise - every test in this
+		// package would fail immediately regardless.
+		panic(err)
+	}
+	return app
 }
 
 // newLocalRequest builds a request the way a real browser hitting this

@@ -2,10 +2,8 @@ package server
 
 import (
 	"net/http"
-	"sort"
 
 	"github.com/carlogy/prompt-smith/internal/prompt"
-	"github.com/carlogy/prompt-smith/internal/registry"
 )
 
 // registryResponse is the JSON shape of GET /api/registry: everything
@@ -37,17 +35,8 @@ type skillDTO struct {
 // the same canonical order SortSkills defines for every other surface
 // (list, the TUI picker).
 func (app *application) handleRegistry(w http.ResponseWriter, r *http.Request) {
-	// Targets has no canonical order (unlike Categories, which is an
-	// explicit ordered slice) - it's a map, so alphabetical is the
-	// simplest deterministic choice.
-	targetIDs := make([]string, 0, len(app.reg.Targets))
-	for id := range app.reg.Targets {
-		targetIDs = append(targetIDs, id)
-	}
-	sort.Strings(targetIDs)
-
-	skills := append([]registry.Skill(nil), app.reg.Skills...)
-	app.reg.SortSkills(skills)
+	targetIDs := sortedTargetIDs(app.reg)
+	skills := sortedSkills(app.reg)
 
 	skillDTOs := make([]skillDTO, 0, len(skills))
 	for _, sk := range skills {

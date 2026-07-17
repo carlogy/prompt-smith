@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/carlogy/prompt-smith/internal/prompt"
 	"github.com/carlogy/prompt-smith/internal/registry"
 )
 
@@ -24,6 +25,10 @@ type Options struct {
 	Port int
 	// NoBrowser skips the best-effort browser auto-open.
 	NoBrowser bool
+	// Initial seeds the page's form (target/skills/goal/etc.) - see
+	// --ui's flag seeding in cli, which populates this the same way
+	// --tui pre-populates the picker.
+	Initial prompt.Inputs
 	// Logger receives structured diagnostic events (browser-open
 	// failures, shutdown, request-handling errors). Defaults to
 	// slog.Default() if nil. Deliberately separate from Stdout: this
@@ -67,7 +72,10 @@ func Serve(ctx context.Context, reg *registry.Registry, opts Options) error {
 		return fmt.Errorf("promptsmith: listen: %w", err)
 	}
 
-	app := newApplication(reg, logger)
+	app, err := newApplication(reg, logger, opts.Initial)
+	if err != nil {
+		return err
+	}
 	srv := &http.Server{
 		Handler:           app.routes(),
 		ReadHeaderTimeout: 5 * time.Second,

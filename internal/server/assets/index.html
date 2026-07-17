@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>promptsmith</title>
+</head>
+<body>
+	<h1>promptsmith</h1>
+	<p>Assemble a prompt, then copy it. Nothing here is saved server-side.</p>
+
+	<form id="prompt-form">
+		<div>
+			<label for="target">Target</label>
+			<select id="target" name="target">
+				{{range .Targets}}
+				<option value="{{.ID}}" {{if .Selected}}selected{{end}}>{{.ID}}</option>
+				{{end}}
+			</select>
+		</div>
+
+		<div>
+			<label for="goal">Goal</label><br>
+			<textarea id="goal" name="goal" rows="3" cols="60">{{.Initial.Goal}}</textarea>
+		</div>
+
+		<fieldset>
+			<legend>Skills</legend>
+			{{range .Categories}}
+			<h2>{{.Name}}</h2>
+			{{range .Skills}}
+			<label>
+				<input type="checkbox" name="skills" value="{{.ID}}" {{if .Checked}}checked{{end}}>
+				<strong>{{.Name}}</strong> - {{.WhenToUse}}
+			</label><br>
+			{{end}}
+			{{end}}
+		</fieldset>
+
+		<div>
+			<label for="role">Role (optional)</label><br>
+			<textarea id="role" name="role" rows="2" cols="60">{{.Initial.Role}}</textarea>
+		</div>
+
+		<div>
+			<label for="context">Context (optional)</label><br>
+			<textarea id="context" name="context" rows="2" cols="60">{{.Initial.Context}}</textarea>
+		</div>
+
+		<div>
+			<label for="constraints">Constraints (optional)</label><br>
+			<textarea id="constraints" name="constraints" rows="2" cols="60">{{.Initial.Constraints}}</textarea>
+		</div>
+
+		<div>
+			<label for="output-format">Output format (optional)</label><br>
+			<textarea id="output-format" name="outputFormat" rows="2" cols="60">{{.Initial.OutputFormat}}</textarea>
+		</div>
+	</form>
+
+	<section>
+		<h2>Preview</h2>
+		<pre id="preview"></pre>
+		<button id="copy-button" type="button">Copy to clipboard</button>
+		<span id="copy-status" role="status"></span>
+	</section>
+
+	<script>
+	(function () {
+		"use strict";
+		var form = document.getElementById("prompt-form");
+		var preview = document.getElementById("preview");
+		var copyButton = document.getElementById("copy-button");
+		var copyStatus = document.getElementById("copy-status");
+		var debounceTimer = null;
+
+		function currentInputs() {
+			var skills = [];
+			form.querySelectorAll('input[name="skills"]:checked').forEach(function (el) {
+				skills.push(el.value);
+			});
+			return {
+				target: form.target.value,
+				skills: skills,
+				goal: form.goal.value,
+				role: form.role.value,
+				context: form.context.value,
+				constraints: form.constraints.value,
+				outputFormat: form.outputFormat.value
+			};
+		}
+
+		function buildPreview() {
+			fetch("/api/build", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(currentInputs())
+			})
+				.then(function (resp) { return resp.json(); })
+				.then(function (data) {
+					preview.textContent = data.error ? "Error: " + data.error : data.prompt;
+				})
+				.catch(function (err) {
+					preview.textContent = "Error: " + err;
+				});
+		}
+
+		form.addEventListener("input", function () {
+			clearTimeout(debounceTimer);
+			debounceTimer = setTimeout(buildPreview, 300);
+		});
+
+		copyButton.addEventListener("click", function () {
+			navigator.clipboard.writeText(preview.textContent).then(function () {
+				copyStatus.textContent = "Copied";
+				setTimeout(function () { copyStatus.textContent = ""; }, 2000);
+			});
+		});
+
+		buildPreview();
+	})();
+	</script>
+</body>
+</html>

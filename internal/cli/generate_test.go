@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -738,5 +739,53 @@ func TestGenerate_UIConflictingFlagsError(t *testing.T) {
 				t.Error("expected the server seam to never be invoked when flags conflict")
 			}
 		})
+	}
+}
+
+func TestGenerate_UISeedsInitialInputsFromFlagsAndArgs(t *testing.T) {
+	// --ui seeds the page's form exactly like --tui pre-populates the
+	// picker, from the same flags/goal.
+	var gotOpts server.Options
+	defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+		gotOpts = opts
+		return nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{
+		"--ui",
+		"-t", "opencode",
+		"-s", "diagnose,verify",
+		"--role", "a seeded role",
+		"--context", "seeded context",
+		"--constraints", "seeded constraints",
+		"--output-format", "seeded output format",
+		"my seeded goal",
+	})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+
+	want := prompt.Inputs{
+		Target:       "opencode",
+		Skills:       []string{"diagnose", "verify"},
+		Goal:         "my seeded goal",
+		Role:         "a seeded role",
+		Context:      "seeded context",
+		Constraints:  "seeded constraints",
+		OutputFormat: "seeded output format",
+	}
+	got := gotOpts.Initial
+	if !slices.Equal(got.Skills, want.Skills) {
+		t.Errorf("Initial.Skills = %v, want %v", got.Skills, want.Skills)
+	}
+	if got.Target != want.Target || got.Goal != want.Goal || got.Role != want.Role ||
+		got.Context != want.Context || got.Constraints != want.Constraints || got.OutputFormat != want.OutputFormat {
+		t.Errorf("Initial = %+v, want %+v", got, want)
 	}
 }

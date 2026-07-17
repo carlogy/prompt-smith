@@ -79,11 +79,10 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 	if err := validateUIFlags(cmd, opts); err != nil {
 		return err
 	}
-	if opts.ui {
-		return runUI(cmd, reg, opts)
-	}
-
 	goal := strings.TrimSpace(strings.Join(args, " "))
+	if opts.ui {
+		return runUI(cmd, reg, opts, goal)
+	}
 
 	useTUI, err := decideUseTUI(isInteractive(), opts.quick, opts.tui, len(opts.skills))
 	if err != nil {
@@ -163,7 +162,7 @@ func validateUIFlags(cmd *cobra.Command, opts *generateOptions) error {
 // takes a plain context.Context so it can be shut down deterministically
 // in a test (a context.WithCancel, not a real OS signal, which would
 // affect the whole test process).
-func runUI(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions) error {
+func runUI(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, goal string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -171,6 +170,17 @@ func runUI(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions) er
 		Port:      opts.port,
 		NoBrowser: opts.noBrowser,
 		Stdout:    cmd.OutOrStdout(),
+		// Seeds the page's form, exactly like --tui pre-populates the
+		// picker from the same flags (see runInteractive).
+		Initial: prompt.Inputs{
+			Target:       opts.target,
+			Skills:       opts.skills,
+			Goal:         goal,
+			Context:      opts.context,
+			Constraints:  opts.constraints,
+			Role:         opts.role,
+			OutputFormat: opts.outputFormat,
+		},
 	})
 }
 

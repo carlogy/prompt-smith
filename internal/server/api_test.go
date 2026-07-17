@@ -156,6 +156,7 @@ func TestRoutes_WrongMethodReturns405(t *testing.T) {
 		{http.MethodPost, "/api/registry"},
 		{http.MethodGet, "/api/build"},
 		{http.MethodDelete, "/api/registry"},
+		{http.MethodPost, "/"},
 	}
 
 	for _, tc := range cases {
@@ -185,5 +186,23 @@ func TestHandleBuild_RejectsUnknownContentSilently(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+// TestRoutes_UnmatchedPathReturns404 guards the "/{$}" pattern used
+// for the index page (see app.routes): a plain "/" pattern would match
+// as a subtree (per net/http's ServeMux docs, any pattern ending in
+// "/" matches everything under it), silently serving the full index
+// page for any unrelated, undefined path. "/{$}" is the Go 1.22+
+// exact-match escape hatch for exactly this case.
+func TestRoutes_UnmatchedPathReturns404(t *testing.T) {
+	app := testApp()
+	req := newLocalRequest(http.MethodGet, "/no-such-path", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d, body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
 	}
 }
