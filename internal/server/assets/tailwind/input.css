@@ -1,0 +1,48 @@
+/*
+ * Tailwind input for promptsmith's web UI (see ../templates/*.html).
+ * Compiled to ../static/app.css via `make ui-css` (Tailwind v4
+ * standalone CLI, no Node) and committed - the built binary embeds
+ * ../static/app.css directly, so it never needs Tailwind at runtime,
+ * or even at CI time. Regenerate this after editing.
+ *
+ * Theme: warm x editorial (v1 - a deliberate starting point, expected
+ * to be revised from screenshot feedback). Paper background, a single
+ * clay/terracotta accent, serif display headings over a system sans
+ * body and a system monospace preview. All font stacks are system-only
+ * (see --font-display/--font-sans/--font-mono below) - no embedded or
+ * CDN-loaded fonts, keeping this a single, self-contained, offline
+ * binary, same reasoning as vendoring htmx instead of a CDN.
+ *
+ * Dark mode: Tailwind's `dark:` variant defaults to
+ * `@media (prefers-color-scheme: dark)` - exactly the automatic,
+ * no-toggle behavior wanted here, so no extra config is needed for it.
+ */
+@import "tailwindcss";
+@source "../templates/**/*.html";
+
+@theme {
+	/* Serif display stack for headings: refined without an embedded or
+	   CDN font - see the file header. */
+	--font-display: ui-serif, Charter, "Iowan Old Style", "Palatino Linotype", "URW Palladio L", P052, serif;
+	/* Overrides Tailwind's default font-sans/font-mono with the same
+	   system-stack approach, for consistency with font-display. */
+	--font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	--font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+
+	/* Warm paper/ink base, one clay accent - light values; dark-mode
+	   equivalents are applied per-utility with the dark: variant in the
+	   templates rather than swapped here, so both remain plain,
+	   readable Tailwind color tokens. */
+	--color-paper: #fdfbf5;
+	--color-ink: #2a2420;
+	--color-clay-50: #fbf1ea;
+	--color-clay-100: #f5ddc9;
+	--color-clay-200: #e8bb98;
+	--color-clay-300: #d99968;
+	--color-clay-400: #c67a45;
+	--color-clay-500: #b0602f;
+	--color-clay-600: #934c26;
+	--color-clay-700: #743c20;
+	--color-clay-800: #5c311e;
+	--color-clay-900: #4a291c;
+}

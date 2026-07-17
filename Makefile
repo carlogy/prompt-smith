@@ -1,4 +1,4 @@
-.PHONY: fmt vet staticcheck build build-empty test verify tidy update-golden gosec govulncheck security install install-empty
+.PHONY: fmt vet staticcheck build build-empty test verify tidy update-golden gosec govulncheck security install install-empty ui-css
 
 # fmt fails (non-zero exit) if any file needs gofmt, printing which ones.
 fmt:
@@ -58,6 +58,20 @@ install:
 # so this is a swap, not a side-by-side install.
 install-empty:
 	go install -tags empty ./cmd/promptsmith
+
+# ui-css compiles the web UI's Tailwind input into the committed,
+# embedded internal/server/assets/static/app.css - run this after
+# editing internal/server/assets/tailwind/input.css or any template
+# that changes which Tailwind classes are used, then commit the
+# regenerated app.css alongside your change. Requires the Tailwind
+# standalone CLI (https://tailwindcss.com/blog/standalone-cli) on
+# PATH as `tailwindcss` - no Node, and not needed at runtime or in CI,
+# since the built binary just embeds the already-committed output.
+ui-css:
+	tailwindcss \
+		-i internal/server/assets/tailwind/input.css \
+		-o internal/server/assets/static/app.css \
+		--minify
 
 verify: fmt vet staticcheck build test security
 	@echo "verify: all checks passed"

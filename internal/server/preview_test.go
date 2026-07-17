@@ -80,7 +80,11 @@ func TestHandlePreview_UnknownSkillIsA200WithInlineError(t *testing.T) {
 		t.Fatalf("status = %d, want %d (build errors are not request errors), body = %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, `class="preview-error"`) {
+	// "preview-error" is a stable semantic hook independent of the
+	// Tailwind utility classes that style it - checked as a class-name
+	// substring, not an exact class="..." boundary, since it co-exists
+	// with those utilities in the same attribute.
+	if !strings.Contains(body, "preview-error") {
 		t.Errorf("fragment missing the error partial, got:\n%s", body)
 	}
 	if !strings.Contains(body, "does-not-exist") {

@@ -1,5 +1,5 @@
 {{if .Error}}
-<p class="preview-error" role="alert">Error: {{.Error}}</p>
+<p class="preview-error text-sm text-red-700 dark:text-red-400" role="alert">Error: {{.Error}}</p>
 {{else}}
-<pre id="preview-text">{{.Prompt}}</pre>
+<pre id="preview-text" class="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-ink dark:text-stone-100">{{.Prompt}}</pre>
 {{end}}
