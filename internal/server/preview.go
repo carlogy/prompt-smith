@@ -2,15 +2,46 @@ package server
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/carlogy/prompt-smith/internal/prompt"
+	"github.com/carlogy/prompt-smith/internal/prompthl"
 )
 
 // previewData is what the preview partial (assets/templates/preview.html)
 // renders from.
 type previewData struct {
-	Prompt string
-	Error  string
+	Lines []previewLine
+	Error string
+}
+
+// previewLine is one line of a built prompt plus how the preview
+// should style it. IsOpen/IsClose are value-receiver methods so the
+// template can call them directly ({{if $l.IsOpen}}).
+type previewLine struct {
+	Text string
+	Kind prompthl.Kind
+}
+
+func (l previewLine) IsOpen() bool  { return l.Kind == prompthl.OpenTag }
+func (l previewLine) IsClose() bool { return l.Kind == prompthl.CloseTag }
+
+// highlightPrompt splits a built prompt into lines for the preview's
+// section-tag highlighting, classifying each via the shared
+// internal/prompthl (also used by the TUI's live preview, so both
+// always highlight identically). An empty (or whitespace-only) prompt
+// returns nil, letting the template distinguish "nothing built yet"
+// from "built to an empty string".
+func highlightPrompt(text string) []previewLine {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	out := make([]previewLine, len(lines))
+	for i, line := range lines {
+		out[i] = previewLine{Text: line, Kind: prompthl.Classify(line)}
+	}
+	return out
 }
 
 // handlePreview renders the live-preview fragment htmx swaps into
@@ -48,9 +79,11 @@ func (app *application) handlePreview(w http.ResponseWriter, r *http.Request) {
 		OutputFormat: r.FormValue("outputFormat"),
 	})
 
-	data := previewData{Prompt: out}
+	data := previewData{}
 	if buildErr != nil {
 		data.Error = buildErr.Error()
+	} else {
+		data.Lines = highlightPrompt(out)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -36,6 +36,41 @@ func TestHandlePreview_Success(t *testing.T) {
 	}
 }
 
+// TestHandlePreview_HighlightsSectionTags guards the feedback-driven
+// highlighting feature: opening tags get the cornflower accent,
+// closing tags get dimmed - and, critically, it's the *shared*
+// internal/prompthl classifier doing the classifying, the same one
+// the TUI's live preview uses, so the two can never highlight
+// differently for the same prompt.
+func TestHandlePreview_HighlightsSectionTags(t *testing.T) {
+	app := testApp()
+	form := url.Values{
+		"target": {"generic"},
+		"skills": {"diagnose"},
+		"goal":   {"fix the flaky test"},
+	}
+	req := newLocalRequest(http.MethodPost, "/preview", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	wantOpen := `<span class="text-cornflower-600 dark:text-cornflower-300">&lt;task&gt;</span>`
+	wantClose := `<span class="text-slate-400 dark:text-slate-500">&lt;/task&gt;</span>`
+	if !strings.Contains(body, wantOpen) {
+		t.Errorf("fragment missing the highlighted opening tag %q, got:\n%s", wantOpen, body)
+	}
+	if !strings.Contains(body, wantClose) {
+		t.Errorf("fragment missing the dimmed closing tag %q, got:\n%s", wantClose, body)
+	}
+	// The body line between them must stay plain - no span wrapping a
+	// non-tag line.
+	if strings.Contains(body, `<span class="text-cornflower-600 dark:text-cornflower-300">fix the flaky test</span>`) {
+		t.Error("a content line was highlighted as if it were a tag")
+	}
+}
+
 func TestHandlePreview_MultipleSkillsAllIncluded(t *testing.T) {
 	// Checkboxes sharing a name submit as repeated form keys - proves
 	// r.Form["skills"] (not r.FormValue, which only returns the first)
