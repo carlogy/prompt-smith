@@ -2,7 +2,7 @@ package server
 
 import "net/http"
 
-// indexPageData is what index.html (see assets/index.html) renders
+// indexPageData is what index.html (see assets/templates/index.html) renders
 // from.
 type indexPageData struct {
 	Categories []categoryData
