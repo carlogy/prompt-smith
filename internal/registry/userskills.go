@@ -52,7 +52,14 @@ type skillFrontmatter struct {
 // data/bodies), there's no distillation step, so a drop-in doesn't
 // require separate authoring.
 func parseSkillMD(data []byte) (name, description, body string, err error) {
-	lines := strings.Split(string(data), "\n")
+	// Normalize CRLF/CR to LF up front - the one choke point both the
+	// frontmatter and body pass through - so a SKILL.md authored or
+	// edited on Windows parses identically to a Unix one. Embedded
+	// bodies are covered by .gitattributes (LF on every checkout); this
+	// covers a user's own file, which is outside git's reach.
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	lines := strings.Split(text, "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return "", "", "", errors.New(`missing frontmatter: expected the file to start with "---"`)
 	}

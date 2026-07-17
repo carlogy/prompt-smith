@@ -101,6 +101,18 @@ func TestParseSkillMD(t *testing.T) {
 			wantBody:        "Body text.",
 		},
 		{
+			name: "CRLF line endings are normalized",
+			data: "---\r\n" +
+				"name: windows-skill\r\n" +
+				"description: Authored on Windows.\r\n" +
+				"---\r\n" +
+				"Line one.\r\n" +
+				"Line two.\r\n",
+			wantID:          "windows-skill",
+			wantDescription: "Authored on Windows.",
+			wantBody:        "Line one.\nLine two.",
+		},
+		{
 			name:    "missing opening delimiter errors",
 			data:    "name: architect\ndescription: x\n---\nbody\n",
 			wantErr: true,
