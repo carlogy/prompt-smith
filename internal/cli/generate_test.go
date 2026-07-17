@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -188,17 +189,27 @@ func TestGenerate_OutWritesFileAndSuppressesStdout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat(%s) error = %v", outPath, err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("file perms = %o, want 0600 (prompt content may be sensitive - see gosec G306)", perm)
+	// Windows has no Unix permission bits - any writable file reports
+	// 0666 regardless of the mode passed to WriteFile - so this
+	// guarantee is only meaningful, and only checked, on Unix.
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Errorf("file perms = %o, want 0600 (prompt content may be sensitive - see gosec G306)", perm)
+		}
 	}
 }
 
 func TestGenerate_OutExpandsTildeAndCreatesMissingDirs(t *testing.T) {
-	// os.UserHomeDir() reads $HOME on Unix, so pointing it at a temp dir
-	// lets this exercise the real expansion path without touching the
-	// developer's actual home directory.
+	// os.UserHomeDir() reads $HOME on Unix but %USERPROFILE% on
+	// Windows, so pointing the OS-appropriate var at a temp dir lets
+	// this exercise the real expansion path (on every OS) without
+	// touching the developer's actual home directory.
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", fakeHome)
+	} else {
+		t.Setenv("HOME", fakeHome)
+	}
 
 	reg := testRegistry(t)
 	root := newRootCmd(reg)
@@ -419,8 +430,13 @@ func TestGenerate_TUI_WriteAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat(%s) error = %v", outPath, err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("file perms = %o, want 0600 (same guarantee as the flag-only -o path)", perm)
+	// See the identical guard + comment in
+	// TestGenerate_OutWritesFileAndSuppressesStdout - meaningless on
+	// Windows, which has no Unix permission bits.
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Errorf("file perms = %o, want 0600 (same guarantee as the flag-only -o path)", perm)
+		}
 	}
 }
 
