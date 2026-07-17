@@ -6,6 +6,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/carlogy/prompt-smith/internal/fielddesc"
 )
 
 var (
@@ -24,11 +26,31 @@ var (
 	previewTitleStyle   = lipgloss.NewStyle().Bold(true)
 )
 
+// fieldDescriptorKey maps a text-field focus zone to its
+// internal/fielddesc key, so the footer can show a per-field
+// descriptor sentence instead of a generic "type to edit" hint - the
+// same sentence the web UI shows under each field (see
+// server/page.go's Hints). Target has no entry: it isn't part of this
+// TUI's focus cycle (see focus.go) - it's selected elsewhere, never
+// typed into here.
+var fieldDescriptorKey = map[focusZone]string{
+	focusGoal:         fielddesc.Goal,
+	focusContext:      fielddesc.Context,
+	focusConstraints:  fielddesc.Constraints,
+	focusRole:         fielddesc.Role,
+	focusOutputFormat: fielddesc.OutputFormat,
+}
+
 // footerHelpFor returns the keybinding hint for the currently-focused
 // zone: what up/down (and other zone-specific keys) actually do right
 // now, since that's context-dependent - plus the always-available
-// confirm/cancel keys where they apply. All five text fields share
-// identical mechanics, so they all get the same hint.
+// confirm/cancel keys where they apply. A text field's hint leads with
+// its own descriptor sentence rather than a generic "type to edit":
+// every field's editing mechanics are identical (hence the shared
+// "tab next / esc unfocus" suffix), but what the field is *for* isn't,
+// and that's the more useful thing to show here. Falls back to the
+// generic hint for any zone with no mapped descriptor (defensive; not
+// expected to trigger for the five current text fields).
 func footerHelpFor(zone focusZone) string {
 	switch zone {
 	case focusSkills:
@@ -36,6 +58,11 @@ func footerHelpFor(zone focusZone) string {
 	case focusPreview:
 		return "\u2191/\u2193 pgup/pgdn scroll \u00b7 tab next \u00b7 enter=stdout \u00b7 c=copy \u00b7 w=write \u00b7 esc=cancel"
 	default: // a text field
+		if key, ok := fieldDescriptorKey[zone]; ok {
+			if sentence := fielddesc.Sentence(key); sentence != "" {
+				return sentence + "  \u00b7  tab next \u00b7 esc unfocus"
+			}
+		}
 		return "type to edit \u00b7 tab next \u00b7 esc unfocus"
 	}
 }

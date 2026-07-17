@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/carlogy/prompt-smith/internal/fielddesc"
 	"github.com/carlogy/prompt-smith/internal/prompt"
 )
 
@@ -25,7 +26,7 @@ func TestFooterHelpFor_ReflectsFocusedZone(t *testing.T) {
 		{
 			name:    "a text field (goal)",
 			zone:    focusGoal,
-			want:    []string{"type", "esc"},
+			want:    []string{"What you want the model to do.", "esc"},
 			notWant: []string{"space select", "enter=stdout", "pgup/pgdn"},
 		},
 		{
@@ -53,15 +54,41 @@ func TestFooterHelpFor_ReflectsFocusedZone(t *testing.T) {
 	}
 }
 
-func TestFooterHelpFor_EveryTextFieldGetsTheSameHint(t *testing.T) {
-	// All five fields share identical editing mechanics, so they should
-	// share the same footer text - this locks that they don't drift
-	// independently as fields were added one at a time in P3c.
-	want := footerHelpFor(focusGoal)
-	for _, z := range []focusZone{focusContext, focusConstraints, focusRole, focusOutputFormat} {
-		if got := footerHelpFor(z); got != want {
-			t.Errorf("footerHelpFor(%v) = %q, want the same as focusGoal's %q", z, got, want)
+// TestFooterHelpFor_TextFieldsShareKeybindsButShowTheirOwnDescriptor
+// replaces the old "every field gets the same hint" assumption: that
+// was true when the hint was purely mechanical ("type to edit"), but
+// since each field now leads with its own fielddesc sentence (Commit
+// 7), sameness there would be a bug, not a feature. What must still
+// hold - because the five fields *do* share identical editing
+// mechanics - is the keybind suffix.
+func TestFooterHelpFor_TextFieldsShareKeybindsButShowTheirOwnDescriptor(t *testing.T) {
+	const keybindSuffix = "tab next \u00b7 esc unfocus"
+
+	fields := []struct {
+		zone focusZone
+		key  string
+	}{
+		{focusGoal, fielddesc.Goal},
+		{focusContext, fielddesc.Context},
+		{focusConstraints, fielddesc.Constraints},
+		{focusRole, fielddesc.Role},
+		{focusOutputFormat, fielddesc.OutputFormat},
+	}
+
+	seen := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		got := footerHelpFor(f.zone)
+		if !strings.Contains(got, keybindSuffix) {
+			t.Errorf("footerHelpFor(%v) = %q, want it to end with the shared keybind suffix %q", f.zone, got, keybindSuffix)
 		}
+		wantSentence := fielddesc.Sentence(f.key)
+		if !strings.Contains(got, wantSentence) {
+			t.Errorf("footerHelpFor(%v) = %q, want it to lead with %q", f.zone, got, wantSentence)
+		}
+		if seen[got] {
+			t.Errorf("footerHelpFor(%v) = %q, want a distinct descriptor per field, got a duplicate", f.zone, got)
+		}
+		seen[got] = true
 	}
 }
 

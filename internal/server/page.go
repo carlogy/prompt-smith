@@ -1,6 +1,10 @@
 package server
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/carlogy/prompt-smith/internal/fielddesc"
+)
 
 // indexPageData is what index.html (see assets/templates/index.html) renders
 // from.
@@ -9,6 +13,7 @@ type indexPageData struct {
 	Targets      []targetOptionData
 	Initial      initialData
 	AdvancedOpen bool // pre-expand the optional-fields <details> when any were seeded
+	Hints        fieldHints
 }
 
 type categoryData struct {
@@ -32,6 +37,19 @@ type targetOptionData struct {
 // the template - Skills becomes per-skillOptionData.Checked above
 // rather than being rendered directly.
 type initialData struct {
+	Goal         string
+	Role         string
+	Context      string
+	Constraints  string
+	OutputFormat string
+}
+
+// fieldHints carries the canonical descriptive sentence (see
+// internal/fielddesc) for each field, so index.html renders its hints
+// from data instead of hardcoding them - the same sentences the TUI's
+// footer descriptor shows (see tui/view.go's footerHelpFor).
+type fieldHints struct {
+	Target       string
 	Goal         string
 	Role         string
 	Context      string
@@ -86,6 +104,14 @@ func (app *application) handleIndex(w http.ResponseWriter, r *http.Request) {
 		},
 		AdvancedOpen: app.initial.Role != "" || app.initial.Context != "" ||
 			app.initial.Constraints != "" || app.initial.OutputFormat != "",
+		Hints: fieldHints{
+			Target:       fielddesc.Sentence(fielddesc.Target),
+			Goal:         fielddesc.Sentence(fielddesc.Goal),
+			Role:         fielddesc.Sentence(fielddesc.Role),
+			Context:      fielddesc.Sentence(fielddesc.Context),
+			Constraints:  fielddesc.Sentence(fielddesc.Constraints),
+			OutputFormat: fielddesc.Sentence(fielddesc.OutputFormat),
+		},
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
