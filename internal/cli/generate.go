@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 
@@ -12,6 +14,7 @@ import (
 
 	"github.com/carlogy/prompt-smith/internal/prompt"
 	"github.com/carlogy/prompt-smith/internal/registry"
+	"github.com/carlogy/prompt-smith/internal/server"
 	"github.com/carlogy/prompt-smith/internal/tui"
 )
 
@@ -23,6 +26,11 @@ var copyToClipboard = clipboard.WriteAll
 // so tests can substitute a spy instead of starting a real Bubble Tea
 // program (which would block reading real stdin).
 var runTUIFunc = tui.Run
+
+// runServerFunc launches the local web UI (see --ui) and blocks until
+// ctx is done. A package variable, same reasoning as runTUIFunc: tests
+// substitute a spy so they never bind a real port or open a browser.
+var runServerFunc = server.Serve
 
 // errEmptyGoal is returned when no goal text was given.
 var errEmptyGoal = errors.New(`promptsmith: a goal is required, e.g. promptsmith "fix the flaky test"`)
@@ -39,6 +47,9 @@ type generateOptions struct {
 	out          string
 	quick        bool
 	tui          bool
+	ui           bool
+	port         int
+	noBrowser    bool
 }
 
 // addGenerateFlags registers the generate flags on cmd and wires its RunE.
@@ -55,6 +66,9 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 	cmd.Flags().StringVarP(&opts.out, "out", "o", "", "write the prompt to this file instead of stdout")
 	cmd.Flags().BoolVarP(&opts.quick, "quick", "q", false, "never launch the interactive picker, even in a terminal")
 	cmd.Flags().BoolVar(&opts.tui, "tui", false, "launch the interactive picker even if --skills was given")
+	cmd.Flags().BoolVar(&opts.ui, "ui", false, "launch the local web UI in your browser")
+	cmd.Flags().IntVar(&opts.port, "port", 0, "port for --ui to bind (default: an OS-assigned free port)")
+	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "with --ui, don't automatically open a browser")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		return runGenerate(cmd, reg, opts, args)
@@ -62,6 +76,13 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 }
 
 func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, args []string) error {
+	if err := validateUIFlags(cmd, opts); err != nil {
+		return err
+	}
+	if opts.ui {
+		return runUI(cmd, reg, opts)
+	}
+
 	goal := strings.TrimSpace(strings.Join(args, " "))
 
 	useTUI, err := decideUseTUI(isInteractive(), opts.quick, opts.tui, len(opts.skills))
@@ -100,6 +121,57 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 	}
 
 	return deliver(cmd, opts, out)
+}
+
+// validateUIFlags enforces --ui's flag relationships: --port and
+// --no-browser only make sense alongside --ui, and --ui itself is
+// mutually exclusive with the other ways of choosing what happens to
+// the generated prompt (--tui: a different interactive mode; --quick:
+// explicitly asks to skip any interactive mode; --copy/--out: the web
+// UI decides delivery itself - browser copy/download - so a
+// server-side delivery flag has nothing to act on).
+func validateUIFlags(cmd *cobra.Command, opts *generateOptions) error {
+	if !opts.ui {
+		if cmd.Flags().Changed("port") {
+			return errors.New("promptsmith: --port requires --ui")
+		}
+		if cmd.Flags().Changed("no-browser") {
+			return errors.New("promptsmith: --no-browser requires --ui")
+		}
+		return nil
+	}
+
+	switch {
+	case opts.tui:
+		return errors.New("promptsmith: --ui and --tui are mutually exclusive")
+	case opts.quick:
+		return errors.New("promptsmith: --ui and --quick are mutually exclusive")
+	case opts.toClipboard:
+		return errors.New("promptsmith: --ui and --copy are mutually exclusive")
+	case opts.out != "":
+		return errors.New("promptsmith: --ui and --out are mutually exclusive")
+	}
+	return nil
+}
+
+// runUI launches the local web UI and blocks until it's interrupted
+// (Ctrl-C) or otherwise stops. Unlike the TUI, --ui doesn't require an
+// interactive terminal: "open a browser" doesn't depend on the calling
+// process's own stdio, so it works just as well from a script.
+//
+// signal.NotifyContext lives here, not in the server package: Serve
+// takes a plain context.Context so it can be shut down deterministically
+// in a test (a context.WithCancel, not a real OS signal, which would
+// affect the whole test process).
+func runUI(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	return runServerFunc(ctx, reg, server.Options{
+		Port:      opts.port,
+		NoBrowser: opts.noBrowser,
+		Stdout:    cmd.OutOrStdout(),
+	})
 }
 
 // runInteractive launches the picker (seeded with whatever was already

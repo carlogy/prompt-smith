@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/carlogy/prompt-smith/internal/prompt"
 	"github.com/carlogy/prompt-smith/internal/registry"
+	"github.com/carlogy/prompt-smith/internal/server"
 	"github.com/carlogy/prompt-smith/internal/tui"
 )
 
@@ -41,6 +44,16 @@ func stubRunTUI(t *testing.T, fn func(*registry.Registry, prompt.Inputs) (tui.Re
 	original := runTUIFunc
 	runTUIFunc = fn
 	return func() { runTUIFunc = original }
+}
+
+// stubRunServer substitutes the server.Serve seam with fn for the
+// duration of the calling test, so --ui tests never bind a real port
+// or open a browser.
+func stubRunServer(t *testing.T, fn func(context.Context, *registry.Registry, server.Options) error) func() {
+	t.Helper()
+	original := runServerFunc
+	runServerFunc = fn
+	return func() { runServerFunc = original }
 }
 
 func TestGenerate_TracerBullet(t *testing.T) {
@@ -581,6 +594,148 @@ func TestGenerate_ShortAliasesMatchLongForms(t *testing.T) {
 			wantTag := "<" + tc.wantSection + ">"
 			if !strings.Contains(short, wantTag) {
 				t.Errorf("%s: expected output to contain %q, got:\n%s", tc.name, wantTag, short)
+			}
+		})
+	}
+}
+
+func TestGenerate_UIFlagInvokesServerWithDefaults(t *testing.T) {
+	var gotOpts server.Options
+	called := false
+	defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+		called = true
+		gotOpts = opts
+		return nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"--ui"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if !called {
+		t.Fatal("expected --ui to invoke the server seam")
+	}
+	if gotOpts.Port != 0 {
+		t.Errorf("Port = %d, want 0 (OS-assigned) by default", gotOpts.Port)
+	}
+	if gotOpts.NoBrowser {
+		t.Error("NoBrowser = true, want false by default")
+	}
+	if gotOpts.Stdout != &stdout {
+		t.Error("Stdout wasn't wired to cmd.OutOrStdout()")
+	}
+}
+
+func TestGenerate_UIWithPortAndNoBrowser(t *testing.T) {
+	var gotOpts server.Options
+	defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+		gotOpts = opts
+		return nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"--ui", "--port", "9999", "--no-browser"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if gotOpts.Port != 9999 {
+		t.Errorf("Port = %d, want 9999", gotOpts.Port)
+	}
+	if !gotOpts.NoBrowser {
+		t.Error("NoBrowser = false, want true")
+	}
+}
+
+func TestGenerate_UIDoesNotRequireATTY(t *testing.T) {
+	// Unlike --tui, --ui has nothing to do with the calling process's
+	// own stdio - "open a browser" works the same whether or not
+	// promptsmith itself is running interactively.
+	defer stubInteractive(t, false)()
+
+	called := false
+	defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+		called = true
+		return nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"--ui"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if !called {
+		t.Error("expected --ui to invoke the server seam even with no TTY")
+	}
+}
+
+func TestGenerate_UIPropagatesServerError(t *testing.T) {
+	wantErr := errors.New("listen: address already in use")
+	defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+		return wantErr
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"--ui"})
+
+	err := root.Execute()
+	if !errors.Is(err, wantErr) {
+		t.Errorf("Execute() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestGenerate_UIConflictingFlagsError(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"--ui and --tui", []string{"--ui", "--tui"}},
+		{"--ui and --quick", []string{"--ui", "--quick"}},
+		{"--ui and --copy", []string{"--ui", "--copy"}},
+		{"--ui and --out", []string{"--ui", "--out", "x.txt"}},
+		{"--port without --ui", []string{"--port", "9999", "-s", "diagnose", "goal"}},
+		{"--no-browser without --ui", []string{"--no-browser", "-s", "diagnose", "goal"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+				called = true
+				return nil
+			})()
+
+			reg := testRegistry(t)
+			root := newRootCmd(reg)
+			var stdout, stderr bytes.Buffer
+			root.SetOut(&stdout)
+			root.SetErr(&stderr)
+			root.SetArgs(tc.args)
+
+			if err := root.Execute(); err == nil {
+				t.Fatal("Execute() error = nil, want an error for conflicting flags")
+			}
+			if called {
+				t.Error("expected the server seam to never be invoked when flags conflict")
 			}
 		})
 	}
