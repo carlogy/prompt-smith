@@ -29,20 +29,47 @@
 	--font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 	--font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
-	/* Warm paper/ink base, one clay accent - light values; dark-mode
-	   equivalents are applied per-utility with the dark: variant in the
-	   templates rather than swapped here, so both remain plain,
-	   readable Tailwind color tokens. */
-	--color-paper: #fdfbf5;
-	--color-ink: #2a2420;
-	--color-clay-50: #fbf1ea;
-	--color-clay-100: #f5ddc9;
-	--color-clay-200: #e8bb98;
-	--color-clay-300: #d99968;
-	--color-clay-400: #c67a45;
-	--color-clay-500: #b0602f;
-	--color-clay-600: #934c26;
-	--color-clay-700: #743c20;
-	--color-clay-800: #5c311e;
-	--color-clay-900: #4a291c;
+	/* Light base - warm but pulled toward neutral (v1 read too brown). */
+	--color-paper: #faf8f4;
+	--color-ink: #23211e;
+
+	/* Warm-charcoal ramp for dark mode - replaces Tailwind `stone`,
+	   which read as chocolate. Low-saturation warm, 50 = dark-mode text. */
+	--color-charcoal-50: #f3f0eb;
+	--color-charcoal-100: #e6e2da;
+	--color-charcoal-200: #ccc6bb;
+	--color-charcoal-300: #a9a298;
+	--color-charcoal-400: #847d74;
+	--color-charcoal-500: #635d55;
+	--color-charcoal-600: #48433d;
+	--color-charcoal-700: #302d2a;
+	--color-charcoal-800: #242220;
+	--color-charcoal-900: #1b1a18;
+	--color-charcoal-950: #141312;
+
+	/* Terracotta accent - cleaner/more chromatic than v1's umber ramp,
+	   and used sparingly (buttons, category eyebrows, focus rings) -
+	   headings moved to ink/charcoal so brown isn't the dominant color. */
+	--color-clay-50: #fcf1ea;
+	--color-clay-100: #f8ddce;
+	--color-clay-200: #f0bd9f;
+	--color-clay-300: #e5915f;
+	--color-clay-400: #db6f3c;
+	--color-clay-500: #cf5a2a;
+	--color-clay-600: #b8481f;
+	--color-clay-700: #95391b;
+	--color-clay-800: #78301a;
+	--color-clay-900: #622a19;
+}
+
+@layer components {
+	/* Custom dropdown chevron, offset from the edge - replaces the
+	   native caret (which sat tight against the border) and is
+	   consistent across browsers. */
+	.select-caret {
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23837b72' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 0.75rem center;
+		background-size: 1.25rem 1.25rem;
+	}
 }

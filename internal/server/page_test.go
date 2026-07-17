@@ -32,7 +32,9 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 		`value="diagnose"`, // a known skill id from the fixture registry
 		`Hard bugs.`,       // diagnose's WhenToUse, in the picker
 		`<textarea id="goal"`,
-		`navigator.clipboard`, // the copy button's implementation
+		`navigator.clipboard`,                 // the copy button's implementation
+		`select-caret`,                        // the custom dropdown chevron
+		`The persona the model should adopt.`, // a field hint, proving hints render
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(body, want) {
@@ -86,6 +88,41 @@ func TestHandleIndex_SeedsInitialValues(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing seeded value %q, got:\n%s", want, body)
 		}
+	}
+}
+
+// advancedDetailsOpenTag is the exact rendered opening tag of the
+// optional-fields <details> when AdvancedOpen is true - see
+// index.html. Matched as a whole to avoid false positives from any
+// other "open" substring elsewhere on the page.
+const advancedDetailsOpenTag = `<details class="border-t border-clay-200 pt-6 dark:border-charcoal-700" open>`
+
+func TestHandleIndex_AdvancedClosedByDefault(t *testing.T) {
+	app := testApp() // no seeded optional fields
+	req := newLocalRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "<details") {
+		t.Fatalf("page missing the optional-fields <details>, got:\n%s", body)
+	}
+	if strings.Contains(body, advancedDetailsOpenTag) {
+		t.Errorf("optional fields rendered open with nothing seeded, got:\n%s", body)
+	}
+}
+
+func TestHandleIndex_AdvancedOpenWhenSeeded(t *testing.T) {
+	app := testAppWithInitial(prompt.Inputs{Role: "a seeded role"})
+	req := newLocalRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, advancedDetailsOpenTag) {
+		t.Errorf("expected the optional fields to render open when Role was seeded, got:\n%s", body)
 	}
 }
 

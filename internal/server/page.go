@@ -5,9 +5,10 @@ import "net/http"
 // indexPageData is what index.html (see assets/templates/index.html) renders
 // from.
 type indexPageData struct {
-	Categories []categoryData
-	Targets    []targetOptionData
-	Initial    initialData
+	Categories   []categoryData
+	Targets      []targetOptionData
+	Initial      initialData
+	AdvancedOpen bool // pre-expand the optional-fields <details> when any were seeded
 }
 
 type categoryData struct {
@@ -83,6 +84,8 @@ func (app *application) handleIndex(w http.ResponseWriter, r *http.Request) {
 			Constraints:  app.initial.Constraints,
 			OutputFormat: app.initial.OutputFormat,
 		},
+		AdvancedOpen: app.initial.Role != "" || app.initial.Context != "" ||
+			app.initial.Constraints != "" || app.initial.OutputFormat != "",
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
