@@ -31,12 +31,15 @@ func newApplication(reg *registry.Registry, logger *slog.Logger) *application {
 }
 
 // routes builds this server's handler: the JSON API today, and (in a
-// later phase) the served page. Separated from Serve (server.go) so
-// tests - including a future browser-driven end-to-end suite - can
-// exercise it via httptest without binding a real port.
+// later phase) the served page, wrapped in enforceLocalOnly (see
+// security.go) - every route this server will ever have needs that
+// protection, so it's applied once here rather than per-registration.
+// Separated from Serve (server.go) so tests - including a future
+// browser-driven end-to-end suite - can exercise it via httptest
+// without binding a real port.
 func (app *application) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/registry", app.handleRegistry)
 	mux.HandleFunc("POST /api/build", app.handleBuild)
-	return mux
+	return enforceLocalOnly(mux)
 }
