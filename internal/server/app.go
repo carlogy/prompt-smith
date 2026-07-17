@@ -58,7 +58,7 @@ func (app *application) routes() http.Handler {
 	mux.HandleFunc("GET /{$}", app.handleIndex) // {$}: exact "/" only, not every unmatched path as a subtree
 	mux.Handle("GET /static/", http.StripPrefix("/static/", app.static))
 	mux.HandleFunc("GET /api/registry", app.handleRegistry)
-	mux.HandleFunc("POST /api/build", app.handleBuild)
+	mux.HandleFunc("POST /preview", app.handlePreview)
 	return enforceLocalOnly(mux)
 }
 

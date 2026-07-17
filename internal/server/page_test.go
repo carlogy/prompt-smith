@@ -25,13 +25,13 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 
 	body := rec.Body.String()
 	mustContain := []string{
-		`<form id="prompt-form">`,
+		`<form id="prompt-form"`,
+		`hx-post="/preview"`, // the live-preview wiring, proving the form is htmx-driven
 		`name="target"`,
 		`value="generic"`,  // a known target from the fixture registry
 		`value="diagnose"`, // a known skill id from the fixture registry
 		`Hard bugs.`,       // diagnose's WhenToUse, in the picker
 		`<textarea id="goal"`,
-		`fetch("/api/build"`,  // the live-preview script, proving it's wired to the real API
 		`navigator.clipboard`, // the copy button's implementation
 	}
 	for _, want := range mustContain {

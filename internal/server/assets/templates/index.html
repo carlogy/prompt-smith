@@ -9,7 +9,11 @@
 	<h1>promptsmith</h1>
 	<p>Assemble a prompt, then copy it. Nothing here is saved server-side.</p>
 
-	<form id="prompt-form">
+	<form id="prompt-form"
+		hx-post="/preview"
+		hx-trigger="input changed delay:300ms, load"
+		hx-target="#preview"
+		hx-swap="innerHTML">
 		<div>
 			<label for="target">Target</label>
 			<select id="target" name="target">
@@ -60,7 +64,7 @@
 
 	<section>
 		<h2>Preview</h2>
-		<pre id="preview"></pre>
+		<div id="preview" aria-live="polite"></div>
 		<button id="copy-button" type="button">Copy to clipboard</button>
 		<span id="copy-status" role="status"></span>
 	</section>
@@ -68,56 +72,16 @@
 	<script>
 	(function () {
 		"use strict";
-		var form = document.getElementById("prompt-form");
-		var preview = document.getElementById("preview");
 		var copyButton = document.getElementById("copy-button");
 		var copyStatus = document.getElementById("copy-status");
-		var debounceTimer = null;
-
-		function currentInputs() {
-			var skills = [];
-			form.querySelectorAll('input[name="skills"]:checked').forEach(function (el) {
-				skills.push(el.value);
-			});
-			return {
-				target: form.target.value,
-				skills: skills,
-				goal: form.goal.value,
-				role: form.role.value,
-				context: form.context.value,
-				constraints: form.constraints.value,
-				outputFormat: form.outputFormat.value
-			};
-		}
-
-		function buildPreview() {
-			fetch("/api/build", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(currentInputs())
-			})
-				.then(function (resp) { return resp.json(); })
-				.then(function (data) {
-					preview.textContent = data.error ? "Error: " + data.error : data.prompt;
-				})
-				.catch(function (err) {
-					preview.textContent = "Error: " + err;
-				});
-		}
-
-		form.addEventListener("input", function () {
-			clearTimeout(debounceTimer);
-			debounceTimer = setTimeout(buildPreview, 300);
-		});
 
 		copyButton.addEventListener("click", function () {
-			navigator.clipboard.writeText(preview.textContent).then(function () {
+			var text = document.getElementById("preview").textContent;
+			navigator.clipboard.writeText(text).then(function () {
 				copyStatus.textContent = "Copied";
 				setTimeout(function () { copyStatus.textContent = ""; }, 2000);
 			});
 		});
-
-		buildPreview();
 	})();
 	</script>
 </body>

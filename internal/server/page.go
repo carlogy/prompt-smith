@@ -41,9 +41,9 @@ type initialData struct {
 // handleIndex serves the page: the same skill/category/target data
 // handleRegistry exposes as JSON, rendered server-side instead, with
 // app.initial (seeded from --ui's flags/args - see cli's runUI)
-// pre-filling the form. Live preview and copy are the page's own
-// inline script, calling the same /api/build this pre-render doesn't
-// need to.
+// pre-filling the form. Live preview is the form's own htmx wiring,
+// posting to handlePreview on every change (see preview.go); this
+// initial render doesn't need to call it.
 func (app *application) handleIndex(w http.ResponseWriter, r *http.Request) {
 	initialSkills := make(map[string]bool, len(app.initial.Skills))
 	for _, id := range app.initial.Skills {
