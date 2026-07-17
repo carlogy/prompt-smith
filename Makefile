@@ -1,4 +1,4 @@
-.PHONY: fmt vet staticcheck build test verify tidy update-golden gosec govulncheck security install
+.PHONY: fmt vet staticcheck build build-empty test verify tidy update-golden gosec govulncheck security install install-empty
 
 # fmt fails (non-zero exit) if any file needs gofmt, printing which ones.
 fmt:
@@ -17,6 +17,13 @@ staticcheck:
 
 build:
 	go build ./...
+
+# build-empty compiles the "empty" variant (see
+# internal/registry/embed_empty.go): the canonical categories/targets
+# scaffold with no bundled skills, for users who only want their own via
+# PROMPTSMITH_SKILLS_DIR.
+build-empty:
+	go build -tags empty ./...
 
 test:
 	go test ./...
@@ -45,6 +52,12 @@ security: gosec govulncheck
 
 install:
 	go install ./cmd/promptsmith
+
+# install-empty installs the "empty" variant (see build-empty) in place
+# of the default one - both install to the same $GOBIN/promptsmith path,
+# so this is a swap, not a side-by-side install.
+install-empty:
+	go install -tags empty ./cmd/promptsmith
 
 verify: fmt vet staticcheck build test security
 	@echo "verify: all checks passed"

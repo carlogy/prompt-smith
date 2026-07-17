@@ -10,10 +10,20 @@ import (
 // it must parse and pass Validate(), and must contain what prompt.Build
 // depends on for each target's rendering mode. This is what the
 // `validate` CLI command runs before a rebuild ships.
+//
+// PROMPTSMITH_SKILLS_DIR is pinned to an empty temp directory so this
+// stays hermetic regardless of the developer machine's real user skills
+// directory - this test guards the embedded data specifically, not a
+// merge (see userskills_test.go and cli/integration_test.go for that).
 func TestLoad_RealRegistryIsValid(t *testing.T) {
-	reg, err := registry.Load()
+	t.Setenv("PROMPTSMITH_SKILLS_DIR", t.TempDir())
+
+	reg, warnings, err := registry.Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("Load() warnings = %v, want none", warnings)
 	}
 	if err := reg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)

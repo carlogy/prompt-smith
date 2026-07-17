@@ -12,12 +12,16 @@ import (
 )
 
 // Execute loads the registry, builds the command tree, and runs it,
-// exiting the process on error.
+// exiting the process on error. Non-fatal problems loading user skills
+// (see registry.Load) are printed to stderr but don't stop execution.
 func Execute() {
-	reg, err := registry.Load()
+	reg, warnings, err := registry.Load()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, "promptsmith: "+w)
 	}
 
 	if err := newRootCmd(reg).Execute(); err != nil {

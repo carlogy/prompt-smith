@@ -10,11 +10,21 @@ import (
 
 // TestBuild_WithRealRegistry proves the engine and the real shipped
 // content work together end-to-end for all three targets, not just
-// against the fixture registry used by the rest of this package's tests.
+// against the fixture registry used by the rest of this package's
+// tests.
+//
+// PROMPTSMITH_SKILLS_DIR is pinned to an empty temp directory so this
+// stays hermetic regardless of the developer machine's real user
+// skills directory.
 func TestBuild_WithRealRegistry(t *testing.T) {
-	reg, err := registry.Load()
+	t.Setenv("PROMPTSMITH_SKILLS_DIR", t.TempDir())
+
+	reg, warnings, err := registry.Load()
 	if err != nil {
 		t.Fatalf("registry.Load() error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("registry.Load() warnings = %v, want none", warnings)
 	}
 
 	tests := []struct {
