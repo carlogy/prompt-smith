@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -173,9 +174,25 @@ func deliver(cmd *cobra.Command, opts *generateOptions, out string) error {
 // containing sensitive detail (paths, internal notes), so it's kept
 // unreadable to other users (gosec G306). Shared by the flag-only and
 // TUI delivery paths so the guarantee is identical either way.
+//
+// path may use "~" shorthand (expanded via expandPath) and may name
+// directories that don't exist yet (created via MkdirAll, also
+// owner-only). An existing file at path is overwritten silently, same
+// as a shell redirect would.
 func writeFile(path, out string) error {
-	if err := os.WriteFile(path, []byte(out+"\n"), 0o600); err != nil {
-		return fmt.Errorf("promptsmith: write %s: %w", path, err)
+	expanded, err := expandPath(path)
+	if err != nil {
+		return err
+	}
+
+	if dir := filepath.Dir(expanded); dir != "." {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("promptsmith: create directory %s: %w", dir, err)
+		}
+	}
+
+	if err := os.WriteFile(expanded, []byte(out+"\n"), 0o600); err != nil {
+		return fmt.Errorf("promptsmith: write %s: %w", expanded, err)
 	}
 	return nil
 }

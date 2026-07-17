@@ -193,6 +193,35 @@ func TestGenerate_OutWritesFileAndSuppressesStdout(t *testing.T) {
 	}
 }
 
+func TestGenerate_OutExpandsTildeAndCreatesMissingDirs(t *testing.T) {
+	// os.UserHomeDir() reads $HOME on Unix, so pointing it at a temp dir
+	// lets this exercise the real expansion path without touching the
+	// developer's actual home directory.
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "-o", "~/nested/dir/prompt.txt", "goal"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+
+	wantPath := filepath.Join(fakeHome, "nested", "dir", "prompt.txt")
+	written, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v (expected ~ expansion and missing parent dirs to be created)", wantPath, err)
+	}
+	if !bytes.Contains(written, []byte("pass/fail")) {
+		t.Errorf("file contents missing diagnose body, got:\n%s", written)
+	}
+}
+
 func TestGenerate_CopyUsesClipboardSeamAndSuppressesStdout(t *testing.T) {
 	var copied string
 	restore := stubClipboard(t, func(s string) error {
