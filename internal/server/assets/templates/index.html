@@ -17,9 +17,10 @@
 		<div class="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:items-start">
 			<form id="prompt-form" class="space-y-8"
 				hx-post="/preview"
-				hx-trigger="input changed delay:300ms, load"
+				hx-trigger="input changed delay:300ms, load, promptsmith:refresh"
 				hx-target="#preview"
-				hx-swap="innerHTML">
+				hx-swap="innerHTML"
+				hx-indicator="#preview-indicator">
 
 				<div>
 					<label for="target" class="block text-sm font-medium text-slate-700 dark:text-slate-200">Target</label>
@@ -94,13 +95,24 @@
 			</form>
 
 			<section class="lg:sticky lg:top-10">
-				<h2 class="font-display text-lg font-semibold text-slate-800 dark:text-slate-100">Preview</h2>
+				<div class="flex items-center gap-2">
+					<h2 class="font-display text-lg font-semibold text-slate-800 dark:text-slate-100">Preview</h2>
+					<span id="preview-indicator" class="htmx-indicator text-xs text-slate-400 dark:text-slate-500">updating…</span>
+				</div>
 				<div id="preview" aria-live="polite"
 					class="mt-3 min-h-40 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"></div>
 				<div class="mt-3 flex items-center gap-3">
 					<button id="copy-button" type="button"
 						class="rounded-md bg-cornflower-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-cornflower-700 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-cornflower-500 dark:bg-cornflower-500 dark:hover:bg-cornflower-600">
 						Copy to clipboard
+					</button>
+					<button id="download-button" type="button"
+						class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-cornflower-500 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">
+						Download
+					</button>
+					<button id="clear-button" type="button"
+						class="rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-cornflower-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100">
+						Clear
 					</button>
 					<span id="copy-status" role="status" class="text-sm text-cornflower-600 dark:text-cornflower-300"></span>
 				</div>
@@ -111,15 +123,41 @@
 	<script>
 	(function () {
 		"use strict";
-		var copyButton = document.getElementById("copy-button");
+		var form = document.getElementById("prompt-form");
 		var copyStatus = document.getElementById("copy-status");
 
-		copyButton.addEventListener("click", function () {
-			var text = document.getElementById("preview").textContent;
-			navigator.clipboard.writeText(text).then(function () {
+		document.getElementById("copy-button").addEventListener("click", function () {
+			var pre = document.getElementById("preview-text");
+			if (!pre || !pre.textContent) return;
+			navigator.clipboard.writeText(pre.textContent).then(function () {
 				copyStatus.textContent = "Copied";
 				setTimeout(function () { copyStatus.textContent = ""; }, 2000);
 			});
+		});
+
+		document.getElementById("download-button").addEventListener("click", function () {
+			var pre = document.getElementById("preview-text");
+			if (!pre || !pre.textContent) return;
+			var blob = new Blob([pre.textContent], { type: "text/plain" });
+			var url = URL.createObjectURL(blob);
+			var a = document.createElement("a");
+			a.href = url;
+			a.download = pre.dataset.filename || "promptsmith.txt";
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		});
+
+		document.getElementById("clear-button").addEventListener("click", function () {
+			form.querySelectorAll("textarea").forEach(function (t) { t.value = ""; });
+			form.querySelectorAll('input[name="skills"]').forEach(function (c) { c.checked = false; });
+			// Not form.target: that's the HTMLFormElement.target IDL
+			// attribute (the link/submission target, a plain string),
+			// which shadows the <select name="target"> form control of
+			// the same name. Look the select up by id instead.
+			document.getElementById("target").selectedIndex = 0;
+			window.htmx.trigger(form, "promptsmith:refresh");
 		});
 	})();
 	</script>

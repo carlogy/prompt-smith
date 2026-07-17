@@ -166,3 +166,48 @@ func TestHandlePreview_EscapesUserSuppliedContent(t *testing.T) {
 		t.Errorf("expected the goal to be HTML-escaped, got:\n%s", body)
 	}
 }
+
+// TestHandlePreview_EmptyGoalShowsPlaceholder guards the third branch
+// of preview.html (error / lines / neither): nothing built yet is
+// distinct from a build that produced content, and must not render
+// #preview-text at all - the empty-state placeholder takes its place.
+func TestHandlePreview_EmptyGoalShowsPlaceholder(t *testing.T) {
+	app := testApp()
+	form := url.Values{"target": {"generic"}}
+	req := newLocalRequest(http.MethodPost, "/preview", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Enter a goal") {
+		t.Errorf("fragment missing the empty-state placeholder, got:\n%s", body)
+	}
+	if strings.Contains(body, `id="preview-text"`) {
+		t.Errorf("fragment rendered #preview-text with nothing built, got:\n%s", body)
+	}
+}
+
+// TestHandlePreview_IncludesDownloadFilename guards the Download
+// button's data source: the fragment must carry a suggested filename
+// (from the shared internal/naming, the same one the TUI's save
+// prompt uses) for the button's script to read.
+func TestHandlePreview_IncludesDownloadFilename(t *testing.T) {
+	app := testApp()
+	form := url.Values{
+		"target": {"generic"},
+		"skills": {"diagnose"},
+		"goal":   {"fix the bug"},
+	}
+	req := newLocalRequest(http.MethodPost, "/preview", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `data-filename="promptsmith-`) || !strings.Contains(body, `.txt"`) {
+		t.Errorf("fragment missing a suggested download filename, got:\n%s", body)
+	}
+}

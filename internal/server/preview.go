@@ -3,7 +3,9 @@ package server
 import (
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/carlogy/prompt-smith/internal/naming"
 	"github.com/carlogy/prompt-smith/internal/prompt"
 	"github.com/carlogy/prompt-smith/internal/prompthl"
 )
@@ -11,8 +13,9 @@ import (
 // previewData is what the preview partial (assets/templates/preview.html)
 // renders from.
 type previewData struct {
-	Lines []previewLine
-	Error string
+	Lines    []previewLine
+	Error    string
+	Filename string // suggested Download filename - see naming.SuggestFilename
 }
 
 // previewLine is one line of a built prompt plus how the preview
@@ -79,7 +82,7 @@ func (app *application) handlePreview(w http.ResponseWriter, r *http.Request) {
 		OutputFormat: r.FormValue("outputFormat"),
 	})
 
-	data := previewData{}
+	data := previewData{Filename: naming.SuggestFilename(r.FormValue("goal"), time.Now())}
 	if buildErr != nil {
 		data.Error = buildErr.Error()
 	} else {

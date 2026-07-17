@@ -1,8 +1,9 @@
-// Package tui implements the interactive skill-picker + live-preview
-// terminal UI (see Run in tui.go). This file holds SuggestFilename, a
-// pure function with no Bubble Tea dependency so it's trivially unit
-// tested.
-package tui
+// Package naming builds a suggested filename for a saved/downloaded
+// prompt, from a goal and a timestamp. Shared by the TUI's save-file
+// prompt (internal/tui) and the web UI's Download button
+// (internal/server), so both surfaces agree on what "obvious default
+// name" means for the same goal.
+package naming
 
 import (
 	"strings"

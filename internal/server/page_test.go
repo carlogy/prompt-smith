@@ -35,6 +35,10 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 		`navigator.clipboard`,                 // the copy button's implementation
 		`select-caret`,                        // the custom dropdown chevron
 		`The persona the model should adopt.`, // a field hint, proving hints render
+		`promptsmith:refresh`,                 // the custom trigger Clear fires to rebuild the preview
+		`id="preview-indicator"`,              // the htmx loading indicator
+		`id="download-button"`,
+		`id="clear-button"`,
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(body, want) {

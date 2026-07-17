@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/carlogy/prompt-smith/internal/naming"
 	"github.com/carlogy/prompt-smith/internal/prompt"
 	"github.com/carlogy/prompt-smith/internal/registry"
 )
@@ -383,7 +384,7 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.enteringFilename = true
 			m.filenameInput = textinput.New()
-			m.filenameInput.SetValue(SuggestFilename(m.goal, time.Now()))
+			m.filenameInput.SetValue(naming.SuggestFilename(m.goal, time.Now()))
 			m.filenameInput.Focus()
 		}
 	}
