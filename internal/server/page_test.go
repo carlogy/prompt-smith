@@ -95,7 +95,7 @@ func TestHandleIndex_SeedsInitialValues(t *testing.T) {
 // optional-fields <details> when AdvancedOpen is true - see
 // index.html. Matched as a whole to avoid false positives from any
 // other "open" substring elsewhere on the page.
-const advancedDetailsOpenTag = `<details class="border-t border-clay-200 pt-6 dark:border-charcoal-700" open>`
+const advancedDetailsOpenTag = `<details class="border-t border-slate-200 pt-6 dark:border-slate-700" open>`
 
 func TestHandleIndex_AdvancedClosedByDefault(t *testing.T) {
 	app := testApp() // no seeded optional fields

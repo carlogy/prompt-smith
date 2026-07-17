@@ -51,8 +51,8 @@ func TestStaticHandler_ServesAppCSS(t *testing.T) {
 	// template's class usage stopped matching the @source scan, this
 	// class would be the first thing to silently disappear.
 	body := rec.Body.String()
-	if !strings.Contains(body, "clay") {
-		t.Errorf("served app.css doesn't reference the clay theme color, got len=%d", len(body))
+	if !strings.Contains(body, "cornflower") {
+		t.Errorf("served app.css doesn't reference the cornflower theme color, got len=%d", len(body))
 	}
 }
 

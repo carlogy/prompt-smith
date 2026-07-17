@@ -5,13 +5,20 @@
  * ../static/app.css directly, so it never needs Tailwind at runtime,
  * or even at CI time. Regenerate this after editing.
  *
- * Theme: warm x editorial (v1 - a deliberate starting point, expected
- * to be revised from screenshot feedback). Paper background, a single
- * clay/terracotta accent, serif display headings over a system sans
- * body and a system monospace preview. All font stacks are system-only
- * (see --font-display/--font-sans/--font-mono below) - no embedded or
- * CDN-loaded fonts, keeping this a single, self-contained, offline
- * binary, same reasoning as vendoring htmx instead of a CDN.
+ * Theme: cool developer-tool palette modeled on react-formula.com's
+ * dark/light themes, per direct feedback that an earlier warm
+ * clay/terracotta pass read as "milk chocolate" / "Halloween orange".
+ * Neutrals are stock Tailwind `slate` (no custom neutral ramp needed -
+ * it's already the cool gray-blue family the reference site uses);
+ * the one custom token is the `cornflower` accent below. Headings stay
+ * neutral slate; cornflower is used sparingly (buttons, category
+ * eyebrows, focus rings, checkboxes) - color is an accent, not the
+ * dominant tone. Serif display headings are kept (see --font-display)
+ * for a bit of editorial character against the cooler palette.
+ *
+ * All font stacks are system-only - no embedded or CDN-loaded fonts,
+ * keeping this a single, self-contained, offline binary, same
+ * reasoning as vendoring htmx instead of a CDN.
  *
  * Dark mode: Tailwind's `dark:` variant defaults to
  * `@media (prefers-color-scheme: dark)` - exactly the automatic,
@@ -29,37 +36,20 @@
 	--font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 	--font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
-	/* Light base - warm but pulled toward neutral (v1 read too brown). */
-	--color-paper: #faf8f4;
-	--color-ink: #23211e;
-
-	/* Warm-charcoal ramp for dark mode - replaces Tailwind `stone`,
-	   which read as chocolate. Low-saturation warm, 50 = dark-mode text. */
-	--color-charcoal-50: #f3f0eb;
-	--color-charcoal-100: #e6e2da;
-	--color-charcoal-200: #ccc6bb;
-	--color-charcoal-300: #a9a298;
-	--color-charcoal-400: #847d74;
-	--color-charcoal-500: #635d55;
-	--color-charcoal-600: #48433d;
-	--color-charcoal-700: #302d2a;
-	--color-charcoal-800: #242220;
-	--color-charcoal-900: #1b1a18;
-	--color-charcoal-950: #141312;
-
-	/* Terracotta accent - cleaner/more chromatic than v1's umber ramp,
-	   and used sparingly (buttons, category eyebrows, focus rings) -
-	   headings moved to ink/charcoal so brown isn't the dominant color. */
-	--color-clay-50: #fcf1ea;
-	--color-clay-100: #f8ddce;
-	--color-clay-200: #f0bd9f;
-	--color-clay-300: #e5915f;
-	--color-clay-400: #db6f3c;
-	--color-clay-500: #cf5a2a;
-	--color-clay-600: #b8481f;
-	--color-clay-700: #95391b;
-	--color-clay-800: #78301a;
-	--color-clay-900: #622a19;
+	/* Cornflower accent, modeled on react-formula.com's blue. Stock
+	   Tailwind `slate` covers every neutral surface/text/border - no
+	   custom neutral ramp needed. */
+	--color-cornflower-50: #eef4fe;
+	--color-cornflower-100: #d9e6fc;
+	--color-cornflower-200: #bcd3f9;
+	--color-cornflower-300: #8fb6f3;
+	--color-cornflower-400: #6293ea;
+	--color-cornflower-500: #4778df;
+	--color-cornflower-600: #365fc8;
+	--color-cornflower-700: #2d4da3;
+	--color-cornflower-800: #294583;
+	--color-cornflower-900: #273c6a;
+	--color-cornflower-950: #1b2745;
 }
 
 @layer components {
@@ -67,7 +57,7 @@
 	   native caret (which sat tight against the border) and is
 	   consistent across browsers. */
 	.select-caret {
-		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23837b72' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
 		background-repeat: no-repeat;
 		background-position: right 0.75rem center;
 		background-size: 1.25rem 1.25rem;
