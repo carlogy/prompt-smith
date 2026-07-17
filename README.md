@@ -189,3 +189,10 @@ go install golang.org/x/vuln/cmd/govulncheck@latest
 ```
 
 See the `Makefile` for the full list of targets.
+
+### CI
+
+Every push and pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+`make verify` plus a static check of the `-tags empty` build variant on
+Linux, and a `go build` + `go test -race` portability check across
+Linux, macOS, and Windows.

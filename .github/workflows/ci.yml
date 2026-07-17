@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # verify runs the same checks a contributor runs locally (`make
+  # verify`), plus static analysis of the -tags empty build variant
+  # (embed_empty.go isn't compiled at all in a normal build/vet
+  # invocation, so it needs its own explicit check). Runs once, on
+  # Linux: nothing here is OS-specific, see the `test` job for
+  # portability coverage.
+  verify:
+    name: verify (fmt, vet, staticcheck, build, test, security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # go install puts binaries in $(go env GOPATH)/bin; make it
+      # available to the Makefile's bare `staticcheck`/`gosec`/
+      # `govulncheck` invocations.
+      - name: Add GOPATH/bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install verification tools
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: go mod verify
+        run: go mod verify
+
+      - name: make verify
+        run: make verify
+
+      - name: Empty build variant (-tags empty)
+        run: |
+          make build-empty
+          go vet -tags empty ./...
+          staticcheck -tags empty ./...
+          gosec -quiet -tags empty ./...
+
+  # test covers portability: the same source builds and passes on all
+  # three OSes promptsmith ships for. fmt/vet/staticcheck/security are
+  # not OS-specific here (no per-OS source files), so they're not
+  # duplicated across the matrix - see the `verify` job.
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test -race ./...
