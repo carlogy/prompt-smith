@@ -16,13 +16,14 @@ func TestView_TotalHeightNeverExceedsTerminalHeight(t *testing.T) {
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal", Skills: []string{"diagnose"}})
 
 	// Since P3c, the fields section is a fixed numFields rows, on top of
-	// a minimally-useful skills section (minSkillsHeight) - that's a
-	// hard structural floor (plus borders + footer) the layout can't
-	// shrink below, no matter how tiny the terminal actually is. Below
-	// that floor, View() clamps to the floor rather than the terminal's
+	// a minimally-useful skills section (minSkillsHeight) and the
+	// fixed one-row target line (targetHeight) - that's a hard
+	// structural floor (plus borders + footer) the layout can't shrink
+	// below, no matter how tiny the terminal actually is. Below that
+	// floor, View() clamps to the floor rather than the terminal's
 	// too-small height; at or above it, it must never exceed the
 	// terminal - both bounds checked explicitly.
-	minimumUsableHeight := numFields + minSkillsHeight + paneBorderRows + footerHeight
+	minimumUsableHeight := numFields + targetHeight + minSkillsHeight + paneBorderRows + footerHeight
 
 	for _, h := range []int{6, 7, 8, 10, 24, 40} {
 		updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: h})

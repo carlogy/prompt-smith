@@ -30,9 +30,10 @@ var (
 // internal/fielddesc key, so the footer can show a per-field
 // descriptor sentence instead of a generic "type to edit" hint - the
 // same sentence the web UI shows under each field (see
-// server/page.go's Hints). Target has no entry: it isn't part of this
-// TUI's focus cycle (see focus.go) - it's selected elsewhere, never
-// typed into here.
+// server/page.go's Hints). Target has no entry here: it's in the TUI's
+// focus cycle (see focus.go), but it's a left/right selector rather
+// than a typed-into text field, so footerHelpFor handles it with its
+// own case below instead of via this generic text-field lookup.
 var fieldDescriptorKey = map[focusZone]string{
 	focusGoal:         fielddesc.Goal,
 	focusContext:      fielddesc.Context,
@@ -57,6 +58,8 @@ func footerHelpFor(zone focusZone) string {
 		return "\u2191/\u2193 move \u00b7 space select \u00b7 tab next \u00b7 enter=stdout \u00b7 c=copy \u00b7 w=write \u00b7 esc=cancel"
 	case focusPreview:
 		return "\u2191/\u2193 pgup/pgdn scroll \u00b7 tab next \u00b7 enter=stdout \u00b7 c=copy \u00b7 w=write \u00b7 esc=cancel"
+	case focusTarget:
+		return fielddesc.Sentence(fielddesc.Target) + "  \u00b7  \u2190/\u2192 change \u00b7 tab next \u00b7 esc unfocus"
 	default: // a text field
 		if key, ok := fieldDescriptorKey[zone]; ok {
 			if sentence := fielddesc.Sentence(key); sentence != "" {
@@ -81,7 +84,7 @@ func (m model) View() string {
 
 	l := computeLayout(m.termWidth, m.termHeight)
 
-	left := m.viewSkillList(l.skillsHeight, l.leftContentWidth) + "\n" + m.viewFields(l.leftContentWidth)
+	left := m.viewTarget(l.leftContentWidth) + "\n" + m.viewSkillList(l.skillsHeight, l.leftContentWidth) + "\n" + m.viewFields(l.leftContentWidth)
 	// The left pane holds both skills and every field; only focusPreview
 	// puts focus in the right pane instead.
 	leftPane, rightPane := renderPanes(left, m.viewPreview(), m.focus != focusPreview)
@@ -112,6 +115,41 @@ func renderPanes(left, right string, leftFocused bool) (string, string) {
 		rightStyle = focusedPaneStyle
 	}
 	return leftStyle.Height(h).Render(left), rightStyle.Height(h).Render(right)
+}
+
+// viewTarget renders the single-line target picker at the top of the
+// left pane: "Target: < DisplayName >", using the same fieldLabelWidth-
+// padded label style and \u203a-marker convention as viewFields/
+// viewSkillList, so it lines up visually with the rows beneath it.
+// Deliberately plain ASCII "<"/">" around the name, not the \u2039/\u203a
+// angle-quote pair - \u203a is the exact character every other zone's
+// focus marker uses (see cursorLineStyle usages below), so rendering it
+// unconditionally here would make TestView_ExactlyOneFocusMarkerAcrossAllZones
+// see two markers whenever this row and the truly-focused zone both
+// render one, or one "stray" marker on this always-visible row when
+// some other zone is focused. ASCII brackets still convey "this value
+// cycles with the arrow keys" without that collision.
+//
+// Unlike viewFields' textinputs (which clip their own value internally
+// and never wrap), a plain DisplayName has no such built-in horizontal
+// scroll; on the left pane's narrow content width (leftPaneFraction=3
+// leaves only a handful of columns) a longer target name plus this
+// row's label/bracket overhead can exceed the width budget. Capping
+// with MaxWidth (which truncates) rather than Width (which word-wraps
+// - lipgloss.Style.Render wraps whenever width>0, confirmed via
+// TestView_TotalHeightNeverExceedsTerminalHeight going red when this
+// used Width instead) keeps this row exactly one line regardless of
+// name length, preserving the layout's fixed-row-count invariant.
+func (m model) viewTarget(width int) string {
+	label := fmt.Sprintf("%-*s", fieldLabelWidth, "Target")
+	name := m.reg.Targets[m.target].DisplayName()
+	row := fmt.Sprintf("%s: < %s >", label, name)
+	if m.focus == focusTarget {
+		row = cursorLineStyle.Render("\u203a " + row)
+	} else {
+		row = "  " + row
+	}
+	return lipgloss.NewStyle().MaxWidth(width - scrollbarWidth).Render(row)
 }
 
 // viewSkillList renders the "Skills" title followed by a windowed

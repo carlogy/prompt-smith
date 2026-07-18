@@ -35,6 +35,12 @@ func TestFooterHelpFor_ReflectsFocusedZone(t *testing.T) {
 			want:    []string{"scroll", "enter=stdout"},
 			notWant: []string{"space select", "type to edit"},
 		},
+		{
+			name:    "target",
+			zone:    focusTarget,
+			want:    []string{fielddesc.Sentence(fielddesc.Target), "change", "esc"},
+			notWant: []string{"space select", "enter=stdout", "pgup/pgdn"},
+		},
 	}
 
 	for _, tc := range cases {

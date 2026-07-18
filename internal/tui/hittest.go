@@ -1,9 +1,10 @@
 package tui
 
 // listTopOffset is how many screen rows precede the first skill-list
-// item within the left pane: the top border (1) + the "Skills" title
-// (1). paneStyle uses zero vertical padding, so nothing else intervenes.
-const listTopOffset = 2
+// item within the left pane: the top border (1) + the "Target: ..."
+// line (1) + the "Skills" title (1). paneStyle uses zero vertical
+// padding, so nothing else intervenes.
+const listTopOffset = 3
 
 // itemAtPoint maps a mouse click at screen coordinates (x, y) to a global
 // index into items, returning ok=true only when the click lands on a

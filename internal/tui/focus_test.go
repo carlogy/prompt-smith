@@ -24,7 +24,7 @@ func TestFocus_TabCyclesForwardWithWraparound(t *testing.T) {
 
 	want := []focusZone{
 		focusGoal, focusContext, focusConstraints, focusRole, focusOutputFormat,
-		focusPreview, focusSkills, // wraps back around
+		focusPreview, focusTarget, focusSkills, // wraps back around
 	}
 	cur := m
 	for i, w := range want {
@@ -41,7 +41,7 @@ func TestFocus_ShiftTabCyclesBackwardWithWraparound(t *testing.T) {
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "g"})
 
 	want := []focusZone{
-		focusPreview, focusOutputFormat, focusRole, focusConstraints, focusContext,
+		focusTarget, focusPreview, focusOutputFormat, focusRole, focusConstraints, focusContext,
 		focusGoal, focusSkills, // wraps back around
 	}
 	cur := m

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -24,9 +25,10 @@ type item struct {
 }
 
 // model is the Bubble Tea model for the skill picker + live preview.
-// goal/context/constraints/role/outputFormat are fixed from the initial
-// Inputs (inline editing lands in a later phase); only skill selection
-// changes, which recomputes preview via prompt.Build.
+// goal/context/constraints/role/outputFormat and the target are all
+// editable in place: text fields via their textinput, the target via
+// the arrow keys while focusTarget has focus. Every change recomputes
+// the preview via prompt.Build.
 type model struct {
 	reg    *registry.Registry
 	target string
@@ -146,6 +148,19 @@ func buildItems(reg *registry.Registry, target string, selected []string) []item
 	return items
 }
 
+// sortedTargetIDs returns the registry's target ids, alphabetically -
+// mirrors internal/server/app.go's sortedTargetIDs (Targets has no
+// canonical order, unlike Categories, since it's a map; alphabetical is
+// the simplest deterministic choice for cycling through with left/right).
+func sortedTargetIDs(reg *registry.Registry) []string {
+	ids := make([]string, 0, len(reg.Targets))
+	for id := range reg.Targets {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 func firstSelectable(items []item) int {
 	for i, it := range items {
 		if !it.isHeader {
@@ -216,6 +231,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateRoleField(msg)
 		case focusOutputFormat:
 			return m.updateOutputFormatField(msg)
+		case focusTarget:
+			return m.updateTargetField(msg)
 		}
 		return m.updatePicker(msg)
 	case tea.MouseMsg:
@@ -316,6 +333,46 @@ func (m model) updateOutputFormatField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	cmd := m.updateTextField(msg, &m.outputFormatInput, &m.outputFormat)
 	return m, cmd
+}
+
+// updateTargetField handles keys while the target picker has focus:
+// Left/Right cycle to the previous/next target id (alphabetical,
+// wrapping), and Esc blurs back to the skill list (matching every text
+// field's Esc behavior). A target change rebuilds items from scratch -
+// buildItems re-filters by registry.SupportsTarget, so a skill
+// unsupported on the new target drops out, matching the web UI - while
+// preserving which currently-selected skills are still supported, then
+// resets the cursor to the first selectable item and recomputes the
+// preview.
+func (m model) updateTargetField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		return m.changeFocus(focusSkills)
+	case tea.KeyLeft, tea.KeyRight:
+		ids := sortedTargetIDs(m.reg)
+		if len(ids) == 0 {
+			return m, nil
+		}
+		cur := 0
+		for i, id := range ids {
+			if id == m.target {
+				cur = i
+				break
+			}
+		}
+		if msg.Type == tea.KeyLeft {
+			cur = (cur - 1 + len(ids)) % len(ids)
+		} else {
+			cur = (cur + 1) % len(ids)
+		}
+		m.target = ids[cur]
+
+		selected := m.selectedIDs() // capture before reassigning m.items
+		m.items = buildItems(m.reg, m.target, selected)
+		m.cursor = firstSelectable(m.items)
+		m.recomputePreview()
+	}
+	return m, nil
 }
 
 // updateTextField routes msg to input, syncs *target with the field's

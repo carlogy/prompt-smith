@@ -13,7 +13,11 @@ import (
 // fixtureRegistry mirrors the pattern used by internal/prompt and
 // internal/registry: a small, deterministic registry decoupled from the
 // real shipped content, with one skill deliberately unsupported on
-// "generic" (no Body) to exercise the SupportsTarget filter.
+// "generic" (no Body) to exercise the SupportsTarget filter. A second
+// target, "opencode" (SkillMode: reference), lets tests exercise the
+// target picker: reference-mode targets support every skill regardless
+// of Body (see Registry.SupportsTarget), so "agent-only" - absent on
+// "generic" - appears once the target switches to "opencode".
 func fixtureRegistry() *registry.Registry {
 	return &registry.Registry{
 		Categories: []string{"debugging", "testing"},
@@ -23,7 +27,8 @@ func fixtureRegistry() *registry.Registry {
 			{ID: "agent-only", Category: "testing", Order: 20}, // no Body
 		},
 		Targets: map[string]registry.TargetConfig{
-			"generic": {ID: "generic", Delimiter: "xml", SkillMode: "inline"},
+			"generic":  {ID: "generic", Delimiter: "xml", SkillMode: "inline"},
+			"opencode": {ID: "opencode", Delimiter: "xml", SkillMode: "reference"},
 		},
 	}
 }

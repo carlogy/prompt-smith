@@ -12,11 +12,16 @@ const (
 	focusRole
 	focusOutputFormat
 	focusPreview
+	focusTarget
 )
 
-// focusCycle is the canonical Tab order.
+// focusCycle is the canonical Tab order. focusTarget sits immediately
+// before focusSkills (i.e. right after focusPreview on the wrap) rather
+// than at the front, so that the default starting zone (focusSkills,
+// the zero value) is unaffected and every existing "N tabs from skills
+// to <zone>" distance - notably "6 tabs to preview" - stays correct.
 var focusCycle = []focusZone{
-	focusSkills, focusGoal, focusContext, focusConstraints,
+	focusTarget, focusSkills, focusGoal, focusContext, focusConstraints,
 	focusRole, focusOutputFormat, focusPreview,
 }
 

@@ -131,7 +131,11 @@ func TestModel_EndToEnd_TypeGoalScrollPreviewTabBackToSkillsThenConfirm(t *testi
 	// Preview now focused: Down scrolls it, not a skill cursor.
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 
-	// One more tab wraps preview(6) -> skills(0).
+	// Two more tabs: preview(6) -> target(7) -> skills(0). focusTarget
+	// sits between preview and skills in the cycle (see focus.go), so
+	// reaching skills now takes one extra tab versus before that zone
+	// existed.
+	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
 	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
