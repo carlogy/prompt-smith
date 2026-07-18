@@ -26,7 +26,7 @@ var sentences = map[string]string{
 	Role:         "The persona the model should adopt.",
 	Context:      "Background the model should know.",
 	Constraints:  "Rules the solution must respect.",
-	OutputFormat: "The shape of the response you want.",
+	OutputFormat: "How the model should shape its response (e.g. a diff, JSON, bullets).",
 }
 
 // Sentence returns the canonical descriptive sentence for field, or
