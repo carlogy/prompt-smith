@@ -3,5 +3,5 @@
 {{else if .Lines}}
 <pre id="preview-text" data-filename="{{.Filename}}" class="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-slate-800 dark:text-slate-100">{{range $i, $l := .Lines}}{{if $i}}{{"\n"}}{{end}}{{if $l.IsOpen}}<span class="text-cornflower-600 dark:text-cornflower-300">{{$l.Text}}</span>{{else if $l.IsClose}}<span class="text-slate-400 dark:text-slate-500">{{$l.Text}}</span>{{else}}{{$l.Text}}{{end}}{{end}}</pre>
 {{else}}
-<p class="text-sm text-slate-400 dark:text-slate-500">Enter a goal to see your prompt…</p>
+<p class="text-sm text-slate-500 dark:text-slate-400">Enter a goal to see your prompt…</p>
 {{end}}

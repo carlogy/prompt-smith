@@ -39,7 +39,9 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 		`id="preview-indicator"`,              // the htmx loading indicator
 		`id="download-button"`,
 		`id="clear-button"`,
-		`data-skill-row`, // the target-filtering hook on each skill row
+		`data-skill-row`,     // the target-filtering hook on each skill row
+		`flex-wrap`,          // action buttons wrap instead of overflowing on narrow viewports
+		`htmx:beforeRequest`, // aria-busy wiring around the live-preview request
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(body, want) {
