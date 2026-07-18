@@ -1,4 +1,4 @@
-.PHONY: fmt vet staticcheck build build-empty test verify tidy update-golden gosec govulncheck security install install-empty ui-css
+.PHONY: fmt vet staticcheck build build-empty test test-e2e verify tidy update-golden gosec govulncheck security install install-empty ui-css
 
 # fmt fails (non-zero exit) if any file needs gofmt, printing which ones.
 fmt:
@@ -27,6 +27,15 @@ build-empty:
 
 test:
 	go test ./...
+
+# test-e2e runs internal/server's chromedp-driven browser tests (see
+# internal/server/e2e_test.go) - excluded from the default `test`
+# target and the -race CI matrix since they need a real Chrome/
+# Chromium binary on PATH and are slower/less deterministic than the
+# rest of the suite. See .github/workflows/e2e.yml for the opt-in CI
+# job that runs these.
+test-e2e:
+	go test -tags e2e -run TestE2E ./internal/server/...
 
 tidy:
 	go mod tidy
