@@ -29,13 +29,22 @@ test:
 	go test ./...
 
 # test-e2e runs internal/server's chromedp-driven browser tests (see
-# internal/server/e2e_test.go) - excluded from the default `test`
-# target and the -race CI matrix since they need a real Chrome/
-# Chromium binary on PATH and are slower/less deterministic than the
-# rest of the suite. See .github/workflows/e2e.yml for the opt-in CI
-# job that runs these.
+# internal/server/e2e_test.go) inside Dockerfile.e2e - a pinned,
+# isolated image bundling an exact Chromium build with the Go
+# toolchain, so these tests see the same browser everywhere (a
+# contributor's laptop, CI) rather than whatever happens to be
+# installed on the host. Excluded from the default `test` target and
+# the -race CI matrix since they need Docker and are slower/less
+# deterministic than the rest of the suite. Mounts the host's Go
+# module cache read-write so repeat runs don't re-download modules.
+# See .github/workflows/e2e.yml for the CI job that runs these.
 test-e2e:
-	go test -tags e2e -run TestE2E ./internal/server/...
+	docker build -f Dockerfile.e2e -t promptsmith-e2e .
+	docker run --rm \
+		-v $(CURDIR):/workspace \
+		-v $(or $(shell go env GOMODCACHE 2>/dev/null),/tmp/promptsmith-e2e-modcache):/root/go/pkg/mod \
+		promptsmith-e2e \
+		go test -tags e2e -run TestE2E ./internal/server/...
 
 tidy:
 	go mod tidy

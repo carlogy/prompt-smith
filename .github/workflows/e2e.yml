@@ -17,30 +17,22 @@ permissions:
 # tag - go test ./... never compiles them) and are slower and less
 # deterministic than the rest of the suite. Isolated in its own
 # workflow/job so a Chrome-related flake never red-Xs ci.yml's fast,
-# deterministic checks. ubuntu-latest only - Chrome availability isn't
-# asserted on macOS/windows runners, and this suite doesn't test
-# anything OS-specific (see ci.yml's test job for that coverage).
+# deterministic checks. ubuntu-latest only (needs Docker, which every
+# GitHub-hosted runner OS technically has, but this suite doesn't test
+# anything OS-specific anyway - see ci.yml's test job for that
+# coverage).
+#
+# Go and Chrome both come from Dockerfile.e2e (a pinned image, not
+# whatever's on the runner) - see make test-e2e and the Dockerfile's
+# own comment for why: this suite's first real CI failure was caused
+# by never having tested against whichever Chrome build ubuntu-latest
+# actually had preinstalled, only ones tested locally.
 jobs:
   e2e:
     name: e2e (chromedp browser tests)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      # ubuntu-latest normally ships Google Chrome preinstalled - this
-      # is a defensive fallback in case that ever changes, rather than
-      # taking on a third-party setup-chrome Action as a dependency.
-      - name: Ensure Chrome is available
-        run: |
-          if ! command -v google-chrome >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y google-chrome-stable
-          fi
-          google-chrome --version
 
       - name: make test-e2e
         run: make test-e2e

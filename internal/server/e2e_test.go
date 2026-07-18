@@ -30,20 +30,31 @@ import (
 	"github.com/carlogy/prompt-smith/internal/prompt"
 )
 
-// newChromeContext starts a headless Chrome/Chromium instance (found
-// on PATH by chromedp's default exec allocator) and returns a context
-// bound to one browser tab, torn down automatically at test end via
-// t.Cleanup. NoSandbox is added on top of chromedp's own defaults
-// (which already include Headless) since many CI containers run as
-// root, where Chrome's sandbox refuses to start otherwise; harmless
+// newChromeContext starts a headless Chrome/Chromium instance and
+// returns a context bound to one browser tab, torn down automatically
+// at test end via t.Cleanup. Chromium's binary path comes from
+// CHROMEDP_EXEC_PATH when set - see Dockerfile.e2e, which pins an
+// exact Chromium build (chromedp/headless-shell) rather than
+// depending on whatever browser happens to be on PATH; that ambiguity
+// is what caused this suite's first real CI failure (it passed
+// against every Chrome version tested locally, but never against
+// whatever ubuntu-latest's runner image actually had preinstalled).
+// Falls back to chromedp's own PATH-based auto-detection when unset,
+// so this still works for local ad-hoc runs outside the container.
+// NoSandbox is added on top of chromedp's own defaults (which already
+// include Headless) since this typically runs as root in a container,
+// where Chrome's sandbox refuses to start otherwise; harmless
 // everywhere else. The 30s deadline exists so a chromedp/Chrome hang
 // fails this test in seconds rather than running until go test's own
 // much longer default timeout.
 func newChromeContext(t *testing.T) context.Context {
 	t.Helper()
 
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(),
-		append(chromedp.DefaultExecAllocatorOptions[:], chromedp.NoSandbox)...)
+	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.NoSandbox)
+	if p := os.Getenv("CHROMEDP_EXEC_PATH"); p != "" {
+		opts = append(opts, chromedp.ExecPath(p))
+	}
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
 	t.Cleanup(cancelAlloc)
 
 	ctx, cancelCtx := chromedp.NewContext(allocCtx)

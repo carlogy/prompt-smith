@@ -1,0 +1,43 @@
+# Dockerfile.e2e builds a pinned, isolated environment for
+# internal/server/e2e_test.go's chromedp-driven browser tests - see
+# Makefile's test-e2e target and .github/workflows/e2e.yml.
+#
+# Chrome/Chromium version was the actual source of this suite's first
+# real CI failure: it passed against every Chrome version tested
+# locally, but the tests had never once run against whatever Chrome
+# ubuntu-latest's runner image happened to have preinstalled (the
+# workflow's own "install Chrome" step only ran a fallback `apt-get
+# install` if no google-chrome was already on PATH - which found
+# GitHub's preinstalled one and never exercised that fallback at all).
+# Pinning the exact build here removes that variable entirely, and
+# replaces "whatever Chrome a machine happens to have" with a fixed,
+# reproducible version - identical on a contributor's laptop and in
+# CI.
+#
+# chromedp/headless-shell is chromedp's own maintained image: a
+# Chromium build stripped down for exactly this headless/CDP use case
+# (no full desktop/X11 stack), lighter and faster-starting than
+# installing a full desktop Chrome via apt. Go is added on top so the
+# test binary and the browser share one container/filesystem -
+# required for the download test, which reads a file back off disk
+# after Chrome writes it.
+FROM chromedp/headless-shell:151.0.7922.34
+
+# The base image's own ENTRYPOINT (/headless-shell/run.sh) always
+# launches the headless-shell daemon plus a socat port-forwarder,
+# ignoring whatever command is passed - it's built for a different
+# use case (a remote-debugging sidecar). Reset it so `docker run` just
+# execs the given command directly, as normal. headless-shell (the
+# binary) is already on PATH in this image.
+ENTRYPOINT []
+
+COPY --from=golang:1.26.5 /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+# Read by newChromeContext in e2e_test.go - explicit, rather than
+# relying on chromedp's PATH-based auto-detection to recognize a
+# binary named "headless-shell" (not one of the standard names it
+# already knows to look for, e.g. "google-chrome"/"chromium").
+ENV CHROMEDP_EXEC_PATH="/headless-shell/headless-shell"
+
+WORKDIR /workspace
