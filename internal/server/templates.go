@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"mime"
 	"net/http"
 )
 
@@ -46,6 +47,18 @@ func parseTemplates() (*template.Template, error) {
 // newStaticHandler serves the embedded static assets, rooted so URLs
 // are clean (/static/htmx.min.js, not /static/assets/static/htmx.min.js).
 func newStaticHandler() (http.Handler, error) {
+	// Force .js to the RFC 9239 standard text/javascript on every OS.
+	// http.FileServer derives Content-Type from mime.TypeByExtension,
+	// which on Windows is overridden by the HKEY_CLASSES_ROOT registry
+	// value - commonly application/javascript there - and Go only
+	// hard-codes around the .js -> text/plain registry bug (issue
+	// #32350), not this one. AddExtensionType runs after that OS init
+	// and overrides it, so the vendored htmx is served identically
+	// regardless of host OS (see TestStaticHandler_ForcesJavaScriptMIME).
+	if err := mime.AddExtensionType(".js", "text/javascript"); err != nil {
+		return nil, fmt.Errorf("server: register js mime type: %w", err)
+	}
+
 	sub, err := fs.Sub(staticFiles, "assets/static")
 	if err != nil {
 		return nil, fmt.Errorf("server: sub embedded static assets: %w", err)

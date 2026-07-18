@@ -1,6 +1,7 @@
 package server
 
 import (
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,6 +30,30 @@ func TestStaticHandler_ServesHTMX(t *testing.T) {
 	}
 	if rec.Body.Len() < 10000 {
 		t.Errorf("served body suspiciously small (%d bytes) for htmx.min.js", rec.Body.Len())
+	}
+}
+
+// TestStaticHandler_ForcesJavaScriptMIME proves newStaticHandler's
+// mime.AddExtensionType override actually wins regardless of ambient
+// mime state - this is what makes .js content type deterministic
+// across OSes (see newStaticHandler), rather than that just happening
+// to be true today on whatever OS runs this test. It seeds the exact
+// hostile value real Windows registries commonly report for ".js"
+// (see the comment in newStaticHandler) before building the app, so
+// this fails without the override and passes with it, on any OS.
+func TestStaticHandler_ForcesJavaScriptMIME(t *testing.T) {
+	if err := mime.AddExtensionType(".js", "application/javascript"); err != nil {
+		t.Fatalf("seeding a hostile .js mime type: %v", err)
+	}
+
+	app := testApp() // newApplication -> newStaticHandler must re-force text/javascript
+	req := newLocalRequest(http.MethodGet, "/static/htmx.min.js", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
+		t.Errorf("Content-Type = %q, want text/javascript... even with a pre-seeded application/javascript mapping", ct)
 	}
 }
 
