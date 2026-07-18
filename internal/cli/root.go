@@ -39,7 +39,7 @@ func newRootCmd(reg *registry.Registry) *cobra.Command {
 		Short: "Generate portable, skill-aware prompts for any LLM or agent harness",
 		Long: `promptsmith assembles a deterministic, copy-paste prompt from a goal,
 a set of methodology skills, and a target harness (generic, opencode,
-claude-code, gemini-cli).
+claude-code, gemini-cli, codex).
 
 No LLM runs at generation time: the prompt is assembled from a built-in
 registry of skills and per-target rendering rules.`,

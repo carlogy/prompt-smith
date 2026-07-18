@@ -1,0 +1,7 @@
+<task>
+Fix the flaky checkout test.
+</task>
+
+<approach>
+Load the `diagnose` skill: Hard bugs or failing tests that need a disciplined debugging loop.
+</approach>

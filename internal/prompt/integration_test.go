@@ -35,6 +35,7 @@ func TestBuild_WithRealRegistry(t *testing.T) {
 		{"opencode", "diagnose", "Load the `diagnose` skill"},       // reference mode
 		{"claude-code", "verify", "Load the `verify-checks` skill"}, // renamed ref
 		{"gemini-cli", "diagnose", "Load the `diagnose` skill"},     // reference mode
+		{"codex", "diagnose", "Load the `diagnose` skill"},          // reference mode, no tools
 	}
 
 	for _, tt := range tests {

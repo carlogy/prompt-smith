@@ -4,9 +4,9 @@ Generate portable, skill-aware prompts for any LLM or agent harness.
 
 `promptsmith` assembles a deterministic, copy-paste prompt from a goal, a
 set of methodology "skills", and a target harness (`generic`, `opencode`,
-`claude-code`, `gemini-cli`). No LLM runs at generation time: the prompt is
-assembled from a registry of skills and per-target rendering rules, so the
-same inputs always produce the same output.
+`claude-code`, `gemini-cli`, `codex`). No LLM runs at generation time: the
+prompt is assembled from a registry of skills and per-target rendering
+rules, so the same inputs always produce the same output.
 
 ```
 $ promptsmith -t opencode -s diagnose,verify "fix the flaky checkout test"
@@ -37,10 +37,12 @@ renders each one appropriately per target:
 
 - **`generic`** - inlines the full methodology text directly into the
   prompt, for pasting into any plain LLM.
-- **`opencode`** / **`claude-code`** / **`gemini-cli`** - renders a short
-  "load this skill" reference instead (plus a `<tools>` block mapping
-  generic tool names to that harness's real tool names), assuming the
-  agent already has the skill available.
+- **`opencode`** / **`claude-code`** / **`gemini-cli`** / **`codex`** -
+  renders a short "load this skill" reference instead, assuming the agent
+  already has the skill available. `opencode`, `claude-code`, and
+  `gemini-cli` also get a `<tools>` block mapping generic tool names to
+  that harness's real tool names; `codex` is shell-centric (no discrete
+  named tools) and omits that block.
 
 ## Install
 
@@ -95,7 +97,7 @@ The root command generates a prompt; everything else is a subcommand.
 
 | Flag | Alias | Description |
 |---|---|---|
-| `--target` | `-t` | Target harness: `generic`\|`opencode`\|`claude-code`\|`gemini-cli` (default `generic`). |
+| `--target` | `-t` | Target harness: `generic`\|`opencode`\|`claude-code`\|`gemini-cli`\|`codex` (default `generic`). |
 | `--skills` | `-s` | Skills to include (comma-separated or repeatable). |
 | `--context` | `-x` | Background/context for the goal. |
 | `--constraints` | `-C` | Constraints the solution must respect. |
@@ -133,8 +135,9 @@ case.
 
 Each skill is a plain `SKILL.md` file - the same format
 [Claude](https://docs.claude.com/en/docs/claude-code/skills),
-[opencode](https://opencode.ai/docs), and
-[Gemini CLI](https://geminicli.com/docs/cli/skills/) skills already use,
+[opencode](https://opencode.ai/docs),
+[Gemini CLI](https://geminicli.com/docs/cli/skills/), and
+[Codex CLI](https://developers.openai.com/codex/build-skills) skills already use,
 so an existing skill set drops in unmodified:
 
 ```

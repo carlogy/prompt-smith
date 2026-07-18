@@ -75,6 +75,11 @@ func fixtureRegistry() *registry.Registry {
 				SkillMode: "reference",
 				Tools:     map[string]string{"search": "grep_search", "read": "read_file", "find": "glob"},
 			},
+			"codex": {
+				ID:        "codex",
+				Delimiter: "xml",
+				SkillMode: "reference",
+			},
 		},
 	}
 }
@@ -242,6 +247,28 @@ func TestBuild_GeminiCLIDerivesSnippetAndTools(t *testing.T) {
 	}
 
 	assertGolden(t, "gemini_cli_reference_and_tools", got)
+}
+
+func TestBuild_CodexDerivesReferenceNoTools(t *testing.T) {
+	reg := fixtureRegistry()
+
+	got, err := prompt.Build(reg, prompt.Inputs{
+		Target: "codex",
+		Skills: []string{"diagnose"},
+		Goal:   "Fix the flaky checkout test.",
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	// Codex CLI is shell-centric (no discrete search/read/find tools),
+	// so unlike the other reference targets it renders NO <tools>
+	// section - reference mode still applies to the skills themselves.
+	if strings.Contains(got, "<tools>") {
+		t.Errorf("codex should emit no <tools> section (shell-centric), got:\n%s", got)
+	}
+
+	assertGolden(t, "codex_reference_no_tools", got)
 }
 
 func TestBuild_ClaudeCodeUsesRefOverride(t *testing.T) {

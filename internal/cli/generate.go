@@ -56,7 +56,7 @@ type generateOptions struct {
 func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 	opts := &generateOptions{}
 
-	cmd.Flags().StringVarP(&opts.target, "target", "t", "generic", "target harness: generic|opencode|claude-code|gemini-cli")
+	cmd.Flags().StringVarP(&opts.target, "target", "t", "generic", "target harness: generic|opencode|claude-code|gemini-cli|codex")
 	cmd.Flags().StringSliceVarP(&opts.skills, "skills", "s", nil, "skills to include (comma-separated or repeatable)")
 	cmd.Flags().StringVarP(&opts.context, "context", "x", "", "background/context for the goal")
 	cmd.Flags().StringVarP(&opts.constraints, "constraints", "C", "", "constraints the solution must respect")

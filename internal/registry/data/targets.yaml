@@ -29,3 +29,8 @@ targets:
       search: grep_search
       read: read_file
       find: glob
+
+  - id: codex
+    name: Codex CLI
+    delimiter: xml
+    skill_mode: reference
