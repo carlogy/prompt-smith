@@ -39,6 +39,7 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 		`id="preview-indicator"`,              // the htmx loading indicator
 		`id="download-button"`,
 		`id="clear-button"`,
+		`data-skill-row`, // the target-filtering hook on each skill row
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(body, want) {
@@ -51,6 +52,32 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 	// only belongs in a built prompt, not the selection UI.
 	if strings.Contains(body, "Build a feedback loop") {
 		t.Error("page rendered diagnose's Body - only WhenToUse belongs in the picker")
+	}
+}
+
+// TestHandleIndex_SkillRowsCarrySupportedTargets proves each skill row
+// renders its own SupportedTargets (see page.go), which index.html's
+// JS uses to grey out and disable a skill when the selected target
+// doesn't support it - the same Registry.SupportsTarget check `list
+// -t` and the TUI picker use, applied client-side here since a target
+// change never round-trips to this handler.
+func TestHandleIndex_SkillRowsCarrySupportedTargets(t *testing.T) {
+	app := testApp()
+	req := newLocalRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+	body := rec.Body.String()
+
+	// diagnose and verify both have a Body -> supported on generic
+	// (inline) and opencode (reference, always supported).
+	if !strings.Contains(body, `data-supported-targets="generic,opencode"`) {
+		t.Errorf(`expected a skill row with data-supported-targets="generic,opencode", got:\n%s`, body)
+	}
+	// agent-only has no Body -> unsupported on generic (inline
+	// requires one), but reference-mode opencode supports it anyway.
+	if !strings.Contains(body, `data-supported-targets="opencode"`) {
+		t.Errorf(`expected agent-only's row to have data-supported-targets="opencode" only, got:\n%s`, body)
 	}
 }
 

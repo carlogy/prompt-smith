@@ -48,7 +48,9 @@
 							<h3 class="text-xs font-semibold uppercase tracking-wide text-cornflower-600 dark:text-cornflower-300">{{.Name}}</h3>
 							<div class="mt-2 space-y-2">
 								{{range .Skills}}
-								<label class="flex items-start gap-2 text-sm">
+								<label class="flex items-start gap-2 text-sm transition-opacity"
+									data-skill-row
+									data-supported-targets="{{range $i, $t := .SupportedTargets}}{{if $i}},{{end}}{{$t}}{{end}}">
 									<input type="checkbox" name="skills" value="{{.ID}}" {{if .Checked}}checked{{end}}
 										class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-cornflower-600 focus:ring-2 focus:ring-cornflower-500 dark:border-slate-600 dark:bg-slate-700">
 									<span><strong class="font-medium text-slate-800 dark:text-slate-100">{{.Name}}</strong> <span class="text-slate-500 dark:text-slate-400">- {{.WhenToUse}}</span></span>
@@ -125,6 +127,7 @@
 		"use strict";
 		var form = document.getElementById("prompt-form");
 		var copyStatus = document.getElementById("copy-status");
+		var targetSelect = document.getElementById("target");
 
 		document.getElementById("copy-button").addEventListener("click", function () {
 			var pre = document.getElementById("preview-text");
@@ -156,9 +159,42 @@
 			// attribute (the link/submission target, a plain string),
 			// which shadows the <select name="target"> form control of
 			// the same name. Look the select up by id instead.
-			document.getElementById("target").selectedIndex = 0;
+			targetSelect.selectedIndex = 0;
+			applyTargetFilter();
 			window.htmx.trigger(form, "promptsmith:refresh");
 		});
+
+		// applyTargetFilter greys out and disables every skill row whose
+		// data-supported-targets (see page.go's SupportedTargets) doesn't
+		// include the currently-selected target - the same
+		// Registry.SupportsTarget check the TUI picker and `list -t` use
+		// to hide unsupported skills, applied client-side here since a
+		// target change doesn't round-trip to the server. If a *checked*
+		// skill becomes unsupported it's unchecked too, and the preview
+		// is asked to rebuild so it stops including a skill the form no
+		// longer offers.
+		function applyTargetFilter() {
+			var target = targetSelect.value;
+			var uncheckedAny = false;
+			form.querySelectorAll("[data-skill-row]").forEach(function (row) {
+				var supported = (row.dataset.supportedTargets || "").split(",").filter(Boolean);
+				var checkbox = row.querySelector('input[type="checkbox"]');
+				var isSupported = supported.indexOf(target) !== -1;
+				checkbox.disabled = !isSupported;
+				row.classList.toggle("opacity-50", !isSupported);
+				if (!isSupported && checkbox.checked) {
+					checkbox.checked = false;
+					uncheckedAny = true;
+				}
+			});
+			return uncheckedAny;
+		}
+
+		targetSelect.addEventListener("change", function () {
+			applyTargetFilter();
+			window.htmx.trigger(form, "promptsmith:refresh");
+		});
+		applyTargetFilter(); // sync disabled/greyed state with whatever target was seeded
 	})();
 	</script>
 </body>

@@ -26,6 +26,14 @@ type skillOptionData struct {
 	Name      string
 	WhenToUse string
 	Checked   bool
+	// SupportedTargets is every target id this skill renders on (see
+	// Registry.SupportsTarget) - the same check `list -t` and the TUI
+	// picker use to hide unsupported skills. index.html renders this
+	// as a data attribute and greys/disables the row client-side when
+	// the selected target isn't in the list, since target changes
+	// happen entirely in the browser (no round trip to re-render this
+	// page).
+	SupportedTargets []string
 }
 
 type targetOptionData struct {
@@ -69,13 +77,22 @@ func (app *application) handleIndex(w http.ResponseWriter, r *http.Request) {
 		initialSkills[id] = true
 	}
 
+	targetIDs := sortedTargetIDs(app.reg)
+
 	byCategory := make(map[string][]skillOptionData)
 	for _, sk := range sortedSkills(app.reg) {
+		supported := make([]string, 0, len(targetIDs))
+		for _, tid := range targetIDs {
+			if app.reg.SupportsTarget(sk, tid) {
+				supported = append(supported, tid)
+			}
+		}
 		byCategory[sk.Category] = append(byCategory[sk.Category], skillOptionData{
-			ID:        sk.ID,
-			Name:      sk.Name,
-			WhenToUse: sk.WhenToUse,
-			Checked:   initialSkills[sk.ID],
+			ID:               sk.ID,
+			Name:             sk.Name,
+			WhenToUse:        sk.WhenToUse,
+			Checked:          initialSkills[sk.ID],
+			SupportedTargets: supported,
 		})
 	}
 
@@ -86,7 +103,6 @@ func (app *application) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	targetIDs := sortedTargetIDs(app.reg)
 	targets := make([]targetOptionData, 0, len(targetIDs))
 	for _, id := range targetIDs {
 		targets = append(targets, targetOptionData{ID: id, Selected: id == app.initial.Target})
