@@ -44,7 +44,7 @@ renders each one appropriately per target:
 
 ## Install
 
-Requires Go 1.25+.
+Requires Go 1.26+.
 
 ```sh
 git clone <repo-url>

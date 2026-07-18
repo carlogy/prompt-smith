@@ -50,9 +50,11 @@ func newApplication(reg *registry.Registry, logger *slog.Logger, initial prompt.
 // assets, and the JSON API, wrapped in enforceLocalOnly (see
 // security.go) - every route this server has needs that protection, so
 // it's applied once here rather than per-registration. Separated from
-// Serve (server.go) so tests - including a future browser-driven
-// end-to-end suite - can exercise it via httptest without binding a
-// real port.
+// Serve (server.go) so tests can exercise it directly, without
+// Serve's browser-opening/signal-handling concerns: most tests wrap it
+// in httptest.NewRecorder with no real port at all, while the
+// chromedp-driven end-to-end suite (e2e_test.go) wraps it in
+// httptest.NewServer for a real headless browser to navigate to.
 func (app *application) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", app.handleIndex) // {$}: exact "/" only, not every unmatched path as a subtree
