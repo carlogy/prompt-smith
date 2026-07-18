@@ -55,11 +55,26 @@
 @layer components {
 	/* Custom dropdown chevron, offset from the edge - replaces the
 	   native caret (which sat tight against the border) and is
-	   consistent across browsers. */
+	   consistent across browsers. Stroke is slate-500 (#64748b), not
+	   slate-400: this is a UI-component graphic, so WCAG 1.4.11 needs
+	   3:1 against its background - slate-400 only reached 2.56:1 in
+	   light mode. */
 	.select-caret {
-		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
 		background-repeat: no-repeat;
 		background-position: right 0.75rem center;
 		background-size: 1.25rem 1.25rem;
+	}
+}
+
+/* Respect a user's reduced-motion preference for every transition/
+   animation on the page - the skill rows' transition-opacity (see
+   index.html) and htmx's own injected .htmx-indicator fade both
+   otherwise animate unconditionally. */
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
 	}
 }

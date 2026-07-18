@@ -57,7 +57,7 @@ func TestHandlePreview_HighlightsSectionTags(t *testing.T) {
 
 	body := rec.Body.String()
 	wantOpen := `<span class="text-cornflower-600 dark:text-cornflower-300">&lt;task&gt;</span>`
-	wantClose := `<span class="text-slate-400 dark:text-slate-500">&lt;/task&gt;</span>`
+	wantClose := `<span class="text-slate-500 dark:text-slate-400">&lt;/task&gt;</span>`
 	if !strings.Contains(body, wantOpen) {
 		t.Errorf("fragment missing the highlighted opening tag %q, got:\n%s", wantOpen, body)
 	}
