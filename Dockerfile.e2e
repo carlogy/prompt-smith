@@ -34,6 +34,20 @@ ENTRYPOINT []
 COPY --from=golang:1.26.5 /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:${PATH}"
 
+# chromedp/headless-shell is a minimal Debian image: Chromium carries
+# its own bundled cert store, so the base ships no system CA bundle at
+# all (no /etc/ssl/certs). Go, added above, relies on that system
+# bundle to verify TLS - without it, any HTTPS module download fails
+# with "x509: certificate signed by unknown authority". This never
+# surfaced locally (a populated, mounted module cache means no
+# download happens), but on a fresh CI runner the cache is empty, so
+# `go test` must download from proxy.golang.org and failed there.
+# Copy the CA bundle from the golang image (already pulled above, so
+# no extra network at build time - which also keeps this buildable on
+# TLS-intercepting corporate networks) to the exact path Go checks
+# first on Linux (/etc/ssl/certs/ca-certificates.crt).
+COPY --from=golang:1.26.5 /etc/ssl/certs /etc/ssl/certs
+
 # Read by newChromeContext in e2e_test.go - explicit, rather than
 # relying on chromedp's PATH-based auto-detection to recognize a
 # binary named "headless-shell" (not one of the standard names it
