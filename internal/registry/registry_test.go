@@ -61,6 +61,51 @@ func TestLoadFS_ParsesMinimalRegistry(t *testing.T) {
 	}
 }
 
+// TestLoadFS_ParsesTargetName proves targets.yaml's optional name:
+// field reaches TargetConfig.Name - the display label rendered in the
+// web UI's target <select> (see server/page.go). minimalFS's own
+// "generic" target has no name: key, so this checks the field lands
+// correctly when present rather than duplicating that omitted-case
+// coverage (see TestTargetConfig_DisplayName for the fallback).
+func TestLoadFS_ParsesTargetName(t *testing.T) {
+	fsys := minimalFS()
+	fsys["targets.yaml"] = &fstest.MapFile{Data: []byte(`
+targets:
+  - id: generic
+    name: Generic / Chat
+    delimiter: xml
+    skill_mode: inline
+`)}
+
+	reg, err := registry.LoadFS(fsys)
+	if err != nil {
+		t.Fatalf("LoadFS() error = %v", err)
+	}
+
+	got := reg.Targets["generic"].Name
+	if got != "Generic / Chat" {
+		t.Errorf(`Targets["generic"].Name = %q, want "Generic / Chat"`, got)
+	}
+}
+
+func TestTargetConfig_DisplayName(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  registry.TargetConfig
+		want string
+	}{
+		{"explicit name wins", registry.TargetConfig{ID: "claude-code", Name: "Claude Code"}, "Claude Code"},
+		{"empty name falls back to id", registry.TargetConfig{ID: "opencode", Name: ""}, "opencode"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.cfg.DisplayName(); got != tc.want {
+				t.Errorf("DisplayName() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRegistry_SortSkills(t *testing.T) {
 	reg := &registry.Registry{Categories: []string{"debugging", "testing"}}
 	skills := []registry.Skill{

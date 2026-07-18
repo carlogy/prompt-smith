@@ -1,12 +1,15 @@
 package server
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/carlogy/prompt-smith/internal/prompt"
+	"github.com/carlogy/prompt-smith/internal/registry"
 )
 
 func TestHandleIndex_RendersForm(t *testing.T) {
@@ -176,5 +179,46 @@ func TestHandleIndex_EscapesUserSuppliedContent(t *testing.T) {
 	}
 	if !strings.Contains(body, `&lt;script&gt;alert(1)&lt;/script&gt;`) {
 		t.Errorf("expected the goal to be HTML-escaped, got:\n%s", body)
+	}
+}
+
+// TestHandleIndex_TargetOptionsShowDisplayNameNotID proves the target
+// <select> renders each option's human-friendly TargetConfig.Name (see
+// registry.TargetConfig.DisplayName) as its label while still
+// submitting the raw id as its value - the same id handlePreview reads
+// via r.FormValue("target") and passes straight to prompt.Build.
+// Exercises both branches: an explicit Name (claude-code) and the
+// fallback-to-id path (generic, which sets none here).
+func TestHandleIndex_TargetOptionsShowDisplayNameNotID(t *testing.T) {
+	reg := &registry.Registry{
+		Categories: []string{"debugging"},
+		Skills:     []registry.Skill{{ID: "diagnose", Category: "debugging", Body: "Build a feedback loop first."}},
+		Targets: map[string]registry.TargetConfig{
+			"generic":     {ID: "generic", SkillMode: "inline"},
+			"claude-code": {ID: "claude-code", Name: "Claude Code", SkillMode: "reference"},
+		},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	app, err := newApplication(reg, logger, prompt.Inputs{})
+	if err != nil {
+		t.Fatalf("newApplication() error = %v", err)
+	}
+
+	req := newLocalRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `value="claude-code"`) {
+		t.Errorf(`expected an <option> submitting value="claude-code", got:\n%s`, body)
+	}
+	if !strings.Contains(body, `>Claude Code</option>`) {
+		t.Errorf(`expected claude-code's <option> to display "Claude Code", got:\n%s`, body)
+	}
+	if strings.Contains(body, `>claude-code</option>`) {
+		t.Error("claude-code's option displayed the raw id instead of its Name")
+	}
+	if !strings.Contains(body, `>generic</option>`) {
+		t.Errorf(`expected generic's <option> to fall back to displaying its id (no Name set), got:\n%s`, body)
 	}
 }

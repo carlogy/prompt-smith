@@ -38,6 +38,7 @@ type skillOptionData struct {
 
 type targetOptionData struct {
 	ID       string
+	Name     string
 	Selected bool
 }
 
@@ -105,7 +106,11 @@ func (app *application) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	targets := make([]targetOptionData, 0, len(targetIDs))
 	for _, id := range targetIDs {
-		targets = append(targets, targetOptionData{ID: id, Selected: id == app.initial.Target})
+		targets = append(targets, targetOptionData{
+			ID:       id,
+			Name:     app.reg.Targets[id].DisplayName(),
+			Selected: id == app.initial.Target,
+		})
 	}
 
 	data := indexPageData{

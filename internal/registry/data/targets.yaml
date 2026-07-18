@@ -1,5 +1,6 @@
 targets:
   - id: generic
+    name: Generic / Chat
     delimiter: xml
     skill_mode: inline
 
@@ -12,6 +13,7 @@ targets:
       find: glob
 
   - id: claude-code
+    name: Claude Code
     delimiter: xml
     skill_mode: reference
     tools:

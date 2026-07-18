@@ -36,6 +36,11 @@ type Skill struct {
 // TargetConfig describes how prompts are rendered for one target harness.
 type TargetConfig struct {
 	ID string
+	// Name is a human-friendly display label (e.g. "Claude Code",
+	// "Generic / Chat") - see DisplayName. Optional; falls back to ID
+	// when empty, which most targets rely on (their id already reads
+	// fine as a label, e.g. "opencode").
+	Name string
 	// Delimiter is reserved for future non-XML rendering; "xml" today.
 	Delimiter string
 	// SkillMode is "inline" (render each skill's Body directly) or
@@ -49,6 +54,17 @@ type TargetConfig struct {
 	// target's real tool name, rendered in a <tools> section for
 	// "reference" mode targets.
 	Tools map[string]string
+}
+
+// DisplayName returns t.Name if set, else t.ID - the single place that
+// decides how a target is labeled for a human (the web UI's <select>;
+// potentially CLI/TUI output later), so that fallback lives in one
+// spot rather than being reimplemented at each call site.
+func (t TargetConfig) DisplayName() string {
+	if t.Name != "" {
+		return t.Name
+	}
+	return t.ID
 }
 
 // SkillByID returns the skill with the given id, if present.

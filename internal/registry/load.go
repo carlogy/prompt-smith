@@ -30,6 +30,7 @@ type targetsDoc struct {
 
 type targetDoc struct {
 	ID        string            `yaml:"id"`
+	Name      string            `yaml:"name"`
 	Delimiter string            `yaml:"delimiter"`
 	SkillMode string            `yaml:"skill_mode"`
 	Tools     map[string]string `yaml:"tools"`
@@ -55,6 +56,7 @@ func LoadFS(fsys fs.FS) (*Registry, error) {
 	for _, t := range tdoc.Targets {
 		targets[t.ID] = TargetConfig{
 			ID:        t.ID,
+			Name:      t.Name,
 			Delimiter: t.Delimiter,
 			SkillMode: t.SkillMode,
 			Tools:     t.Tools,
