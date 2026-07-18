@@ -1,0 +1,13 @@
+<task>
+Fix the flaky checkout test.
+</task>
+
+<approach>
+Load the `diagnose` skill: Hard bugs or failing tests that need a disciplined debugging loop.
+</approach>
+
+<tools>
+find: glob
+read: read_file
+search: grep_search
+</tools>

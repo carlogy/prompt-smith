@@ -33,7 +33,7 @@ func TestLoad_RealRegistryIsValid(t *testing.T) {
 		t.Errorf("len(Skills) = %d, want 10", len(reg.Skills))
 	}
 
-	for _, target := range []string{"generic", "opencode", "claude-code"} {
+	for _, target := range []string{"generic", "opencode", "claude-code", "gemini-cli"} {
 		if _, ok := reg.Targets[target]; !ok {
 			t.Errorf("expected target %q to be defined", target)
 		}

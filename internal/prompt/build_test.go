@@ -69,6 +69,12 @@ func fixtureRegistry() *registry.Registry {
 				SkillMode: "reference",
 				Tools:     map[string]string{"search": "Grep", "read": "Read", "find": "Glob"},
 			},
+			"gemini-cli": {
+				ID:        "gemini-cli",
+				Delimiter: "xml",
+				SkillMode: "reference",
+				Tools:     map[string]string{"search": "grep_search", "read": "read_file", "find": "glob"},
+			},
 		},
 	}
 }
@@ -221,6 +227,21 @@ func TestBuild_ReferenceModeTargetDerivesSnippetAndTools(t *testing.T) {
 	}
 
 	assertGolden(t, "opencode_reference_and_tools", got)
+}
+
+func TestBuild_GeminiCLIDerivesSnippetAndTools(t *testing.T) {
+	reg := fixtureRegistry()
+
+	got, err := prompt.Build(reg, prompt.Inputs{
+		Target: "gemini-cli",
+		Skills: []string{"diagnose"},
+		Goal:   "Fix the flaky checkout test.",
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	assertGolden(t, "gemini_cli_reference_and_tools", got)
 }
 
 func TestBuild_ClaudeCodeUsesRefOverride(t *testing.T) {

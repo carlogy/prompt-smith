@@ -20,3 +20,12 @@ targets:
       search: Grep
       read: Read
       find: Glob
+
+  - id: gemini-cli
+    name: Gemini CLI
+    delimiter: xml
+    skill_mode: reference
+    tools:
+      search: grep_search
+      read: read_file
+      find: glob

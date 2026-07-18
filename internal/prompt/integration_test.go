@@ -9,9 +9,8 @@ import (
 )
 
 // TestBuild_WithRealRegistry proves the engine and the real shipped
-// content work together end-to-end for all three targets, not just
-// against the fixture registry used by the rest of this package's
-// tests.
+// content work together end-to-end for every target, not just against
+// the fixture registry used by the rest of this package's tests.
 //
 // PROMPTSMITH_SKILLS_DIR is pinned to an empty temp directory so this
 // stays hermetic regardless of the developer machine's real user
@@ -35,6 +34,7 @@ func TestBuild_WithRealRegistry(t *testing.T) {
 		{"generic", "diagnose", "pass/fail"},                        // inlined methodology
 		{"opencode", "diagnose", "Load the `diagnose` skill"},       // reference mode
 		{"claude-code", "verify", "Load the `verify-checks` skill"}, // renamed ref
+		{"gemini-cli", "diagnose", "Load the `diagnose` skill"},     // reference mode
 	}
 
 	for _, tt := range tests {
