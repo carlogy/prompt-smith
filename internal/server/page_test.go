@@ -53,6 +53,10 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 		`id="preview-heading"`,
 		`data-skill-unavailable`, // per-row SR reason for a disabled skill
 		`htmx:afterSettle`,       // concise-status wiring
+		`placeholder="e.g. fix the flaky checkout test"`,
+		`placeholder="e.g. a senior Go engineer"`,
+		`placeholder="e.g. checkout_test.go:42 fails ~1 in 5 in CI"`,
+		`placeholder="e.g. no new dependencies; keep the public API"`,
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(body, want) {

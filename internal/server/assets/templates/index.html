@@ -36,7 +36,7 @@
 
 				<div>
 					<label for="goal" class="block text-sm font-medium text-slate-700 dark:text-slate-200">Goal</label>
-					<textarea id="goal" name="goal" rows="3"
+					<textarea id="goal" name="goal" rows="3" placeholder="e.g. fix the flaky checkout test"
 						class="mt-1.5 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-cornflower-500 focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-cornflower-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">{{.Initial.Goal}}</textarea>
 					<p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{.Hints.Goal}}</p>
 				</div>
@@ -71,7 +71,7 @@
 					<div class="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2">
 						<div>
 							<label for="role" class="block text-sm font-medium text-slate-700 dark:text-slate-200">Role</label>
-							<textarea id="role" name="role" rows="2"
+							<textarea id="role" name="role" rows="2" placeholder="e.g. a senior Go engineer"
 								class="mt-1.5 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-cornflower-500 focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-cornflower-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">{{.Initial.Role}}</textarea>
 							<p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{.Hints.Role}}</p>
 						</div>
@@ -85,14 +85,14 @@
 
 						<div>
 							<label for="context" class="block text-sm font-medium text-slate-700 dark:text-slate-200">Context</label>
-							<textarea id="context" name="context" rows="2"
+							<textarea id="context" name="context" rows="2" placeholder="e.g. checkout_test.go:42 fails ~1 in 5 in CI"
 								class="mt-1.5 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-cornflower-500 focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-cornflower-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">{{.Initial.Context}}</textarea>
 							<p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{.Hints.Context}}</p>
 						</div>
 
 						<div>
 							<label for="constraints" class="block text-sm font-medium text-slate-700 dark:text-slate-200">Constraints</label>
-							<textarea id="constraints" name="constraints" rows="2"
+							<textarea id="constraints" name="constraints" rows="2" placeholder="e.g. no new dependencies; keep the public API"
 								class="mt-1.5 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-cornflower-500 focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-cornflower-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">{{.Initial.Constraints}}</textarea>
 							<p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{.Hints.Constraints}}</p>
 						</div>
