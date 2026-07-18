@@ -42,14 +42,30 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 		`id="preview-indicator"`,              // the htmx loading indicator
 		`id="download-button"`,
 		`id="clear-button"`,
-		`data-skill-row`,     // the target-filtering hook on each skill row
-		`flex-wrap`,          // action buttons wrap instead of overflowing on narrow viewports
-		`htmx:beforeRequest`, // aria-busy wiring around the live-preview request
+		`data-skill-row`,       // the target-filtering hook on each skill row
+		`flex-wrap`,            // action buttons wrap instead of overflowing on narrow viewports
+		`htmx:beforeRequest`,   // aria-busy wiring around the live-preview request
+		`href="#main-content"`, // skip-to-content link
+		`Skip to content`,
+		`id="main-content"`,   // skip link's target landmark
+		`id="preview-status"`, // concise SR status region (replaces aria-live on #preview)
+		`aria-labelledby="preview-heading"`,
+		`id="preview-heading"`,
+		`data-skill-unavailable`, // per-row SR reason for a disabled skill
+		`htmx:afterSettle`,       // concise-status wiring
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q, got:\n%s", want, body)
 		}
+	}
+
+	// #preview must no longer be an aria-live region: the concise
+	// #preview-status (role=status) region replaced it, so a screen
+	// reader no longer re-reads the whole rebuilt prompt on every
+	// keystroke. aria-live should now appear nowhere on the page.
+	if strings.Contains(body, "aria-live") {
+		t.Errorf("page still contains aria-live; #preview should rely on the concise #preview-status region instead")
 	}
 
 	// The picker shows each skill's WhenToUse (why to pick it), never

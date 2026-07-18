@@ -8,13 +8,14 @@
 	<link rel="stylesheet" href="/static/app.css">
 </head>
 <body class="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased dark:bg-slate-900 dark:text-slate-100">
+	<a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-cornflower-600 focus:shadow dark:focus:bg-slate-800 dark:focus:text-cornflower-300">Skip to content</a>
 	<div class="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
 		<header class="mb-10">
 			<h1 class="font-display text-3xl font-semibold tracking-tight text-slate-800 dark:text-slate-100">promptsmith</h1>
 			<p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Assemble a prompt, then copy it. Nothing here is saved server-side.</p>
 		</header>
 
-		<main class="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:items-start">
+		<main id="main-content" class="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:items-start">
 			<form id="prompt-form" class="space-y-8"
 				hx-post="/preview"
 				hx-trigger="input changed delay:300ms, load, promptsmith:refresh"
@@ -56,6 +57,7 @@
 									<input type="checkbox" name="skills" value="{{.ID}}" {{if .Checked}}checked{{end}}
 										class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-cornflower-600 focus:ring-2 focus:ring-cornflower-500 dark:border-slate-600 dark:bg-slate-700">
 									<span><strong class="font-medium text-slate-800 dark:text-slate-100">{{.Name}}</strong> <span class="text-slate-500 dark:text-slate-400">- {{.WhenToUse}}</span></span>
+									<span class="sr-only" data-skill-unavailable></span>
 								</label>
 								{{end}}
 							</div>
@@ -65,7 +67,7 @@
 				</fieldset>
 
 				<details class="border-t border-slate-200 pt-6 dark:border-slate-700" {{if .AdvancedOpen}}open{{end}}>
-					<summary class="cursor-pointer select-none font-display text-lg font-semibold text-slate-800 dark:text-slate-100">Optional fields</summary>
+					<summary class="cursor-pointer select-none font-display text-lg font-semibold text-slate-800 dark:text-slate-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-cornflower-500">Optional fields</summary>
 					<div class="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2">
 						<div>
 							<label for="role" class="block text-sm font-medium text-slate-700 dark:text-slate-200">Role</label>
@@ -98,13 +100,14 @@
 				</details>
 			</form>
 
-			<section class="lg:sticky lg:top-10">
+			<section class="lg:sticky lg:top-10" aria-labelledby="preview-heading">
 				<div class="flex items-center gap-2">
-					<h2 class="font-display text-lg font-semibold text-slate-800 dark:text-slate-100">Preview</h2>
+					<h2 id="preview-heading" class="font-display text-lg font-semibold text-slate-800 dark:text-slate-100">Preview</h2>
 					<span id="preview-indicator" class="htmx-indicator text-xs text-slate-500 dark:text-slate-400">updating…</span>
 				</div>
-				<div id="preview" aria-live="polite"
+				<div id="preview"
 					class="mt-3 min-h-40 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"></div>
+				<span id="preview-status" role="status" class="sr-only"></span>
 				<div class="mt-3 flex flex-wrap items-center gap-3">
 					<button id="copy-button" type="button"
 						class="rounded-md bg-cornflower-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-cornflower-700 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-cornflower-500 dark:bg-cornflower-700 dark:hover:bg-cornflower-800">
@@ -131,6 +134,7 @@
 		var copyStatus = document.getElementById("copy-status");
 		var preview = document.getElementById("preview");
 		var targetSelect = document.getElementById("target");
+		var previewStatus = document.getElementById("preview-status");
 
 		document.getElementById("copy-button").addEventListener("click", function () {
 			var pre = document.getElementById("preview-text");
@@ -178,13 +182,27 @@
 		// longer offers.
 		function applyTargetFilter() {
 			var target = targetSelect.value;
+			var selected = targetSelect.options[targetSelect.selectedIndex];
+			var targetLabel = selected ? selected.text : target;
 			var uncheckedAny = false;
 			form.querySelectorAll("[data-skill-row]").forEach(function (row) {
 				var supported = (row.dataset.supportedTargets || "").split(",").filter(Boolean);
 				var checkbox = row.querySelector('input[type="checkbox"]');
 				var isSupported = supported.indexOf(target) !== -1;
+				// Don't strand keyboard focus on a checkbox we're about to
+				// disable (browsers drop focus to <body>); move it to the
+				// target select that triggered this.
+				if (!isSupported && document.activeElement === checkbox) {
+					targetSelect.focus();
+				}
 				checkbox.disabled = !isSupported;
 				row.classList.toggle("opacity-50", !isSupported);
+				// Convey *why* a row is unavailable to assistive tech
+				// rather than by dimming (a purely visual cue) alone.
+				var note = row.querySelector("[data-skill-unavailable]");
+				if (note) {
+					note.textContent = isSupported ? "" : " (not available for " + targetLabel + ")";
+				}
 				if (!isSupported && checkbox.checked) {
 					checkbox.checked = false;
 					uncheckedAny = true;
@@ -199,15 +217,28 @@
 		});
 		applyTargetFilter(); // sync disabled/greyed state with whatever target was seeded
 
-		// htmx has no built-in aria-busy handling: toggle it on #preview
-		// around this form's own requests so assistive tech announces
-		// the loading state, not just the (already aria-live) content
-		// swap once it lands.
+		// #preview is deliberately NOT an aria-live region: announcing
+		// the entire rebuilt prompt on every debounced keystroke is far
+		// too verbose. Instead mark it busy during the request and
+		// announce a concise status once it settles (the built prompt
+		// stays quietly available for the user to navigate to). Clearing
+		// the status on beforeRequest then setting it on afterSettle
+		// guarantees the text changes, so the polite region actually
+		// re-announces each update.
 		document.body.addEventListener("htmx:beforeRequest", function (evt) {
-			if (evt.target === form) preview.setAttribute("aria-busy", "true");
+			if (evt.target !== form) return;
+			preview.setAttribute("aria-busy", "true");
+			previewStatus.textContent = "";
 		});
 		document.body.addEventListener("htmx:afterRequest", function (evt) {
 			if (evt.target === form) preview.removeAttribute("aria-busy");
+		});
+		document.body.addEventListener("htmx:afterSettle", function (evt) {
+			if (evt.target !== form) return;
+			// On error the injected <p role="alert"> announces itself
+			// (assertive); staying silent here avoids a double
+			// announcement.
+			previewStatus.textContent = preview.querySelector(".preview-error") ? "" : "Preview updated";
 		});
 	})();
 	</script>
