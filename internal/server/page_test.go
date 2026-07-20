@@ -53,6 +53,7 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 		`id="preview-heading"`,
 		`data-skill-unavailable`, // per-row SR reason for a disabled skill
 		`htmx:afterSettle`,       // concise-status wiring
+		`[role="alert"]`,         // afterSettle keys its announce-or-stay-silent decision off this selector
 		`placeholder="e.g. fix the flaky checkout test"`,
 		`placeholder="e.g. a senior Go engineer"`,
 		`placeholder="e.g. checkout_test.go:42 fails ~1 in 5 in CI"`,
@@ -70,6 +71,18 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 	// keystroke. aria-live should now appear nowhere on the page.
 	if strings.Contains(body, "aria-live") {
 		t.Errorf("page still contains aria-live; #preview should rely on the concise #preview-status region instead")
+	}
+
+	// The old error class (formerly on the error <p> in preview.html)
+	// must not creep back into the template or the afterSettle
+	// selector: role="alert" is the single source of truth for a
+	// preview error now, so nothing should reintroduce that class as
+	// a second, driftable hook. Built by concatenation rather than as
+	// a literal so this regression guard doesn't itself reintroduce
+	// the retired token into the source tree.
+	removedErrorClassToken := "preview" + "-error"
+	if strings.Contains(body, removedErrorClassToken) {
+		t.Errorf("page contains the removed error class token; role=\"alert\" should be the only error hook, not a class name")
 	}
 
 	// The picker shows each skill's WhenToUse (why to pick it), never

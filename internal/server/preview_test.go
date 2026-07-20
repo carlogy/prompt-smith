@@ -31,8 +31,8 @@ func TestHandlePreview_Success(t *testing.T) {
 	if !strings.Contains(body, "fix the flaky test") || !strings.Contains(body, "Build a feedback loop first.") {
 		t.Errorf("fragment missing expected content, got:\n%s", body)
 	}
-	if strings.Contains(body, "preview-error") {
-		t.Errorf("fragment rendered an error class on a successful build, got:\n%s", body)
+	if strings.Contains(body, `role="alert"`) {
+		t.Errorf("fragment rendered an assertive role=\"alert\" on a successful build, got:\n%s", body)
 	}
 }
 
@@ -115,12 +115,14 @@ func TestHandlePreview_UnknownSkillIsA200WithInlineError(t *testing.T) {
 		t.Fatalf("status = %d, want %d (build errors are not request errors), body = %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	body := rec.Body.String()
-	// "preview-error" is a stable semantic hook independent of the
-	// Tailwind utility classes that style it - checked as a class-name
-	// substring, not an exact class="..." boundary, since it co-exists
-	// with those utilities in the same attribute.
-	if !strings.Contains(body, "preview-error") {
-		t.Errorf("fragment missing the error partial, got:\n%s", body)
+	// role="alert" is the single source of truth for a preview error:
+	// it is both the semantic error marker and the element that
+	// announces (assertively) to screen readers, and index.html's
+	// htmx:afterSettle handler keys its announce-or-stay-silent
+	// decision off this exact selector. Asserting on it here keeps the
+	// template and that JS selector from silently drifting apart.
+	if !strings.Contains(body, `role="alert"`) {
+		t.Errorf("fragment missing the error alert, got:\n%s", body)
 	}
 	if !strings.Contains(body, "does-not-exist") {
 		t.Errorf("fragment error doesn't mention the unknown skill, got:\n%s", body)

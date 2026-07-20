@@ -238,7 +238,7 @@
 			// On error the injected <p role="alert"> announces itself
 			// (assertive); staying silent here avoids a double
 			// announcement.
-			previewStatus.textContent = preview.querySelector(".preview-error") ? "" : "Preview updated";
+			previewStatus.textContent = preview.querySelector('[role="alert"]') ? "" : "Preview updated";
 		});
 	})();
 	</script>
