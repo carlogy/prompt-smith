@@ -209,6 +209,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.constraintsInput.Width = fieldWidth
 		m.roleInput.Width = fieldWidth
 		m.outputFormatInput.Width = fieldWidth
+
+		// Re-wrap the preview to the new width - the viewport's
+		// content is pre-wrapped (see recomputePreview), so a resize
+		// leaves it wrapped to the stale width otherwise. This also
+		// resets preview scroll to top on resize, which is acceptable.
+		m.recomputePreview()
 		return m, nil
 	case tea.KeyMsg:
 		if m.enteringFilename {
@@ -546,6 +552,15 @@ func (m *model) recomputePreview() {
 	content := highlightTags(m.preview)
 	if err != nil {
 		content = "error: " + err.Error()
+	}
+	// bubbles v1 viewport does not soft-wrap content itself, so long
+	// lines would otherwise overflow the pane horizontally and get
+	// clipped. Wrap AFTER highlightTags (not before): wrapping first
+	// would break prompthl.Classify's tag detection, and the long
+	// overflowing lines are the unstyled body lines anyway. m.preview
+	// stays the raw, unwrapped string - only this display copy wraps.
+	if w := m.previewVP.Width; w > 0 {
+		content = lipgloss.NewStyle().Width(w).Render(content)
 	}
 	m.previewVP.SetContent(content)
 	m.previewVP.GotoTop()
