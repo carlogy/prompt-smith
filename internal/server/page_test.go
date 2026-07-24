@@ -215,6 +215,52 @@ func TestHandleIndex_EscapesUserSuppliedContent(t *testing.T) {
 	}
 }
 
+// TestHandleIndex_RealRegistryShowsCodingLeanCode guards the real,
+// embedded registry (not the synthetic fixture, which never contains
+// this skill): the "coding" category and its "lean-code" skill must
+// surface in the rendered index page exactly as they do for every
+// other built-in category/skill, since index.html renders entirely
+// off app.reg with nothing hardcoded (see page.go's handleIndex). The
+// asserted substrings are the exact forms index.html emits: a skill's
+// checkbox is `value="{{.ID}}"` and a category's heading is
+// `<h3 ...>{{.Name}}</h3>` with .Name being the raw category string
+// (uppercase is CSS-only via the "uppercase" class, not the text
+// content).
+func TestHandleIndex_RealRegistryShowsCodingLeanCode(t *testing.T) {
+	t.Setenv("PROMPTSMITH_SKILLS_DIR", t.TempDir()) // hermetic: ignore any real user skills dir
+
+	reg, warnings, err := registry.Load()
+	if err != nil {
+		t.Fatalf("registry.Load() error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("registry.Load() warnings = %v, want none", warnings)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	app, err := newApplication(reg, logger, prompt.Inputs{})
+	if err != nil {
+		t.Fatalf("newApplication() error = %v", err)
+	}
+
+	req := newLocalRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+
+	if !strings.Contains(body, `value="lean-code"`) {
+		t.Errorf(`expected the lean-code checkbox value="lean-code", got:\n%s`, body)
+	}
+	if !strings.Contains(body, `>coding</h3>`) {
+		t.Errorf(`expected a category heading rendering "coding", got:\n%s`, body)
+	}
+}
+
 // TestHandleIndex_TargetOptionsShowDisplayNameNotID proves the target
 // <select> renders each option's human-friendly TargetConfig.Name (see
 // registry.TargetConfig.DisplayName) as its label while still

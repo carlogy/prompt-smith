@@ -29,8 +29,8 @@ func TestLoad_RealRegistryIsValid(t *testing.T) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 
-	if len(reg.Skills) != 10 {
-		t.Errorf("len(Skills) = %d, want 10", len(reg.Skills))
+	if len(reg.Skills) != 11 {
+		t.Errorf("len(Skills) = %d, want 11", len(reg.Skills))
 	}
 
 	for _, target := range []string{"generic", "opencode", "claude-code", "gemini-cli", "codex"} {
@@ -56,5 +56,21 @@ func TestLoad_RealRegistryIsValid(t *testing.T) {
 	}
 	if verify.Refs["claude-code"] != "verify-checks" {
 		t.Errorf(`verify.Refs["claude-code"] = %q, want "verify-checks"`, verify.Refs["claude-code"])
+	}
+
+	// "lean-code" is the new coding-category skill; guard its category,
+	// body, and that it carries no target-specific refs.
+	leanCode, ok := reg.SkillByID("lean-code")
+	if !ok {
+		t.Fatal(`expected skill "lean-code" to be loaded`)
+	}
+	if leanCode.Category != "coding" {
+		t.Errorf(`lean-code.Category = %q, want "coding"`, leanCode.Category)
+	}
+	if leanCode.Body == "" {
+		t.Error("lean-code.Body is empty, want non-empty")
+	}
+	if len(leanCode.Refs) != 0 {
+		t.Errorf("lean-code.Refs = %v, want none", leanCode.Refs)
 	}
 }

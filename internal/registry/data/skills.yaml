@@ -1,5 +1,6 @@
 categories:
   - planning
+  - coding
   - debugging
   - testing
   - review
@@ -35,6 +36,15 @@ skills:
       Stress-testing a plan or design by being interviewed about it until every
       ambiguous term and edge case is resolved.
     body: bodies/planning/grill-me.md
+
+  - id: lean-code
+    name: Lean Code
+    category: coding
+    order: 10
+    when_to_use: >-
+      Writing or refactoring code, so the diff stays the minimum that solves
+      the actual problem rather than the first thing that came to mind.
+    body: bodies/coding/lean-code.md
 
   - id: diagnose
     name: Diagnose

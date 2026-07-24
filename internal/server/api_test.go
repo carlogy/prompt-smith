@@ -2,10 +2,15 @@ package server
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"testing"
+
+	"github.com/carlogy/prompt-smith/internal/prompt"
+	"github.com/carlogy/prompt-smith/internal/registry"
 )
 
 // testApp and newLocalRequest live in testhelpers_test.go, shared with
@@ -63,6 +68,65 @@ func TestHandleRegistry(t *testing.T) {
 	}
 	if !slices.Equal(byID["agent-only"].SupportedTargets, []string{"opencode"}) {
 		t.Errorf("agent-only.SupportedTargets = %v, want [opencode] only (no body -> unsupported on inline)", byID["agent-only"].SupportedTargets)
+	}
+}
+
+// TestHandleRegistry_RealRegistryIncludesCodingLeanCode guards the
+// real, embedded registry (not the synthetic fixture, which never
+// contains this skill): the "coding" category and its "lean-code"
+// skill must surface in the /api/registry JSON exactly as they do for
+// every other built-in category/skill, since this handler renders
+// entirely off app.reg with nothing hardcoded. If this ever fails,
+// either the category was dropped from registry.Categories, the skill
+// lost its id/category, or handleRegistry stopped being fully
+// dynamic - all regressions this test exists to catch.
+func TestHandleRegistry_RealRegistryIncludesCodingLeanCode(t *testing.T) {
+	t.Setenv("PROMPTSMITH_SKILLS_DIR", t.TempDir()) // hermetic: ignore any real user skills dir
+
+	reg, warnings, err := registry.Load()
+	if err != nil {
+		t.Fatalf("registry.Load() error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("registry.Load() warnings = %v, want none", warnings)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	app, err := newApplication(reg, logger, prompt.Inputs{})
+	if err != nil {
+		t.Fatalf("newApplication() error = %v", err)
+	}
+
+	req := newLocalRequest(http.MethodGet, "/api/registry", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp registryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v, body = %s", err, rec.Body.String())
+	}
+
+	if !slices.Contains(resp.Categories, "coding") {
+		t.Errorf("Categories = %v, want it to contain %q", resp.Categories, "coding")
+	}
+
+	var found bool
+	for _, sk := range resp.Skills {
+		if sk.ID == "lean-code" {
+			found = true
+			if sk.Category != "coding" {
+				t.Errorf(`lean-code.Category = %q, want "coding"`, sk.Category)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Skills = %v, want a skill with ID %q", resp.Skills, "lean-code")
 	}
 }
 

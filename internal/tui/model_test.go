@@ -388,6 +388,65 @@ func TestView_SkillListScrollsToKeepCursorVisible(t *testing.T) {
 	}
 }
 
+// TestView_RealRegistrySurfacesCodingLeanCode builds the model from the
+// REAL embedded registry (not fixtureRegistry) to guard against the
+// picker silently dropping the "coding" category / "lean-code" skill it
+// dynamically renders. Loading via registry.Load (rather than
+// constructing a Registry by hand) exercises the same path production
+// uses, so this fails if the skill is ever removed, miscategorized, or
+// stops supporting the "generic" target.
+func TestView_RealRegistrySurfacesCodingLeanCode(t *testing.T) {
+	t.Setenv("PROMPTSMITH_SKILLS_DIR", t.TempDir()) // hermetic: ignore the dev machine's user skills
+	reg, warnings, err := registry.Load()
+	if err != nil {
+		t.Fatalf("registry.Load() error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("registry.Load() warnings = %v, want none", warnings)
+	}
+
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "some goal"})
+
+	got := stripANSI(m.View())
+	if !strings.Contains(got, "CODING") {
+		t.Errorf("View() missing category header %q, got:\n%s", "CODING", got)
+	}
+	if !strings.Contains(got, "lean-code") {
+		t.Errorf("View() missing skill id %q, got:\n%s", "lean-code", got)
+	}
+
+	idx := -1
+	for i, it := range m.items {
+		if !it.isHeader && it.skill.ID == "lean-code" {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		t.Fatal("lean-code not found in m.items")
+	}
+	m.cursor = idx
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m2 := updated.(model)
+	if !m2.items[idx].selected {
+		t.Fatal("expected lean-code to become selected after toggling")
+	}
+
+	updated2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m3 := updated2.(model)
+	found := false
+	for _, id := range m3.result.Inputs.Skills {
+		if id == "lean-code" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Inputs.Skills = %v, want to contain %q", m3.result.Inputs.Skills, "lean-code")
+	}
+	assertQuits(t, cmd)
+}
+
 func TestView_FilenamePromptDocumentsSavePathBehavior(t *testing.T) {
 	reg := fixtureRegistry()
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
