@@ -1,5 +1,7 @@
 # promptsmith
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 Generate portable, skill-aware prompts for any LLM or agent harness.
 
 `promptsmith` assembles a deterministic, copy-paste prompt from a goal, a
@@ -200,3 +202,12 @@ Every push and pull request runs [`.github/workflows/ci.yml`](.github/workflows/
 `make verify` plus a static check of the `-tags empty` build variant on
 Linux, and a `go build` + `go test -race` portability check across
 Linux, macOS, and Windows.
+
+## License
+
+promptsmith is licensed under the GNU Affero General Public License
+v3.0 or later (AGPL-3.0-or-later); see [LICENSE](LICENSE) for the full
+text. It's copyleft: any distributed or network-hosted derivative must
+make its complete corresponding source available under the same terms.
+Per AGPL §13, if you run a modified promptsmith as a network service
+(it has a web server), you must offer your users its source.

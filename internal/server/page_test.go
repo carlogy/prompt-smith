@@ -1,3 +1,20 @@
+// promptsmith - generate portable, skill-aware prompts for any LLM or agent harness.
+// Copyright (C) 2026 carlogy
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package server
 
 import (
@@ -90,6 +107,28 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 	// only belongs in a built prompt, not the selection UI.
 	if strings.Contains(body, "Build a feedback loop") {
 		t.Error("page rendered diagnose's Body - only WhenToUse belongs in the picker")
+	}
+}
+
+// TestHandleIndex_ShowsAGPLSourceNotice proves the served page carries
+// an AGPL §13 offer-of-source notice: a network user must be able to
+// get the program's source, so the footer must link to the repo and
+// mention the AGPL. The footer is static template content (not
+// registry-dependent), so this uses the synthetic testApp() fixture
+// rather than loading the real registry.
+func TestHandleIndex_ShowsAGPLSourceNotice(t *testing.T) {
+	app := testApp()
+	req := newLocalRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "https://github.com/carlogy/prompt-smith") {
+		t.Errorf("page missing link to source repository, got:\n%s", body)
+	}
+	if !strings.Contains(body, "AGPL") {
+		t.Errorf("page missing AGPL notice, got:\n%s", body)
 	}
 }
 
