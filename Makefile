@@ -1,4 +1,4 @@
-.PHONY: fmt vet staticcheck build build-empty test test-e2e verify tidy update-golden gosec govulncheck security install install-empty ui-css release-check release-snapshot
+.PHONY: fmt vet staticcheck build build-empty test test-e2e verify tidy update-golden gosec govulncheck security install install-empty ui-css release-check release-snapshot release-assert
 
 # fmt fails (non-zero exit) if any file needs gofmt, printing which ones.
 fmt:
@@ -111,3 +111,11 @@ release-check:
 # it runs for real on a tagged release.
 release-snapshot:
 	goreleaser release --snapshot --clean
+
+# release-assert checks that the binaries in dist/ report a
+# well-formed version (see scripts/assert-version.sh) instead of
+# silently falling back to "(devel)"/"unknown"/"+dirty" - run this
+# after `make release-snapshot` to sanity-check a ldflags/version
+# change locally before it runs for real in CI or on a tagged release.
+release-assert:
+	scripts/assert-version.sh -snapshot-

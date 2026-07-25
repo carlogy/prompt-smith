@@ -112,3 +112,12 @@ jobs:
           distribution: goreleaser
           version: "~> v2"
           args: release --snapshot --clean
+
+      # There's no tag at PR time, so this can't assert an exact
+      # version like release.yml does - instead it asserts the stamp
+      # is well-formed (contains GoReleaser's "-snapshot-" marker,
+      # not "(devel)"/"unknown"/"+dirty"), proving the -X ldflags
+      # actually landed rather than silently no-op'ing. See
+      # scripts/assert-version.sh (shared with release.yml).
+      - name: Assert version stamping (snapshot)
+        run: scripts/assert-version.sh -snapshot- linux_amd64

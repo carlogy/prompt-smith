@@ -78,65 +78,12 @@ jobs:
       # fact, but loudly) rather than let a wrongly-stamped binary
       # ship unnoticed.
       #
-      # GoReleaser's unpacked build dirs are named
-      # dist/<build-id>_<goos>_<goarch>[_<arch-level>] - the
-      # arch-level suffix (_v1 for amd64, _v8.0 for arm64) is a
-      # GoReleaser implementation detail that has changed between
-      # versions, so it's globbed here rather than hardcoded.
+      # Delegates to scripts/assert-version.sh (shared with
+      # ci.yml's release-config job and runnable locally) rather than
+      # duplicating the check inline - see that script for the
+      # glob/marker/match-count details.
       - name: Assert version stamping
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # Unmatched globs expand to nothing (instead of the literal
-          # pattern string) so a missing directory is caught by the
-          # match-count check below rather than by a confusing
-          # "command not found" from trying to execute a glob string.
-          shopt -s nullglob
-
-          expected="${{ github.ref_name }}"
-
-          assert_version() {
-            local label="$1"
-            local pattern="$2"
-            # shellcheck disable=SC2206 # intentional glob expansion, not word-splitting
-            local matches=( $pattern )
-
-            if [[ "${#matches[@]}" -ne 1 ]]; then
-              echo "::error::${label}: expected exactly one match for pattern '${pattern}', found ${#matches[@]}: ${matches[*]:-<none>}"
-              exit 1
-            fi
-
-            local binary="${matches[0]}"
-            local actual
-            # cobra's cmd.Printf falls back to stderr when SetOut
-            # isn't called (it isn't, for this command) - capture
-            # both streams so this assertion doesn't silently pass an
-            # empty stdout while the real output sits on fd 2.
-            actual="$("${binary}" version 2>&1)"
-
-            echo "${label}: expected='${expected}' actual='${actual}'"
-
-            if [[ -z "${actual}" ]]; then
-              echo "::error::${label}: version output is empty (expected '${expected}')"
-              exit 1
-            fi
-
-            for marker in '(devel)' 'unknown' '+dirty'; do
-              if [[ "${actual}" == *"${marker}"* ]]; then
-                echo "::error::${label}: version output contains forbidden marker '${marker}': actual='${actual}' expected='${expected}'"
-                exit 1
-              fi
-            done
-
-            if [[ "${actual}" != *"${expected}"* ]]; then
-              echo "::error::${label}: version output does not contain the release tag verbatim: actual='${actual}' expected='${expected}'"
-              exit 1
-            fi
-          }
-
-          assert_version "promptsmith (default)" "dist/promptsmith_linux_amd64*/promptsmith"
-          assert_version "promptsmith-empty" "dist/promptsmith-empty_linux_amd64*/promptsmith"
+        run: scripts/assert-version.sh "${{ github.ref_name }}" linux_amd64
 
       # actions/attest-build-provenance is, as of v4, a thin wrapper
       # around actions/attest (upstream's own README says as much) -
