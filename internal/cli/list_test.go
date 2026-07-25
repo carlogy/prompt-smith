@@ -88,3 +88,89 @@ func TestList_UnknownTargetErrors(t *testing.T) {
 		t.Fatal("Execute() error = nil, want an error for an unknown target")
 	}
 }
+
+func TestList_NoSkillsAtAll_PrintsGuidanceOnStderr(t *testing.T) {
+	reg := &registry.Registry{
+		Categories: []string{"debugging"},
+		Skills:     nil,
+		Targets: map[string]registry.TargetConfig{
+			"generic": {ID: "generic", SkillMode: "inline"},
+		},
+	}
+	cmd := newListCmd(reg)
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs(nil)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if stdout.String() != "" {
+		t.Errorf("stdout = %q, want empty (no table content)", stdout.String())
+	}
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "PROMPTSMITH_SKILLS_DIR") {
+		t.Errorf("stderr = %q, want mention of PROMPTSMITH_SKILLS_DIR", errOut)
+	}
+	if !strings.Contains(errOut, "SKILL.md") {
+		t.Errorf("stderr = %q, want mention of SKILL.md layout", errOut)
+	}
+}
+
+func TestList_TargetExcludesAllSkills_PrintsTargetSpecificMessage(t *testing.T) {
+	reg := &registry.Registry{
+		Categories: []string{"debugging"},
+		Skills: []registry.Skill{
+			{ID: "agent-only", Category: "debugging"}, // no generic body
+		},
+		Targets: map[string]registry.TargetConfig{
+			"generic":  {ID: "generic", SkillMode: "inline"},
+			"opencode": {ID: "opencode", SkillMode: "reference"},
+		},
+	}
+	cmd := newListCmd(reg)
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"-t", "generic"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if stdout.String() != "" {
+		t.Errorf("stdout = %q, want empty (no table content)", stdout.String())
+	}
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "generic") {
+		t.Errorf("stderr = %q, want mention of the requested target", errOut)
+	}
+	if !strings.Contains(errOut, "promptsmith list") {
+		t.Errorf("stderr = %q, want suggestion to run `promptsmith list` without -t", errOut)
+	}
+	if strings.Contains(errOut, "PROMPTSMITH_SKILLS_DIR") {
+		t.Errorf("stderr = %q, should not suggest configuring a skills directory when skills already exist", errOut)
+	}
+}
+
+func TestList_NonEmptyUnfiltered_NoEmptyStateMessage(t *testing.T) {
+	reg := testRegistry(t)
+	cmd := newListCmd(reg)
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs(nil)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if stderr.String() != "" {
+		t.Errorf("stderr = %q, want empty on the non-empty unfiltered path", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "architect") {
+		t.Errorf("stdout missing expected skill listing:\n%s", stdout.String())
+	}
+}

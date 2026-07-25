@@ -56,15 +56,22 @@ func runList(cmd *cobra.Command, reg *registry.Registry, target string) error {
 		}
 	}
 
+	if len(reg.Skills) == 0 {
+		fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: no skills available. Add your own via $PROMPTSMITH_SKILLS_DIR, or drop SKILL.md files into $XDG_CONFIG_HOME/promptsmith/skills (default ~/.config/promptsmith/skills), laid out as <category>/<skill-id>/SKILL.md (or <skill-id>/SKILL.md for the catch-all \"custom\" category). See the \"Custom skills\" section of README.md.")
+		return nil
+	}
+
 	skills := append([]registry.Skill(nil), reg.Skills...)
 	reg.SortSkills(skills)
 
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 	lastCategory := ""
+	shown := 0
 	for _, sk := range skills {
 		if target != "" && !reg.SupportsTarget(sk, target) {
 			continue
 		}
+		shown++
 		if sk.Category != lastCategory {
 			if lastCategory != "" {
 				fmt.Fprintln(w)
@@ -73,6 +80,10 @@ func runList(cmd *cobra.Command, reg *registry.Registry, target string) error {
 			lastCategory = sk.Category
 		}
 		fmt.Fprintf(w, "  %s\t%s\n", sk.ID, sk.WhenToUse)
+	}
+	if shown == 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "promptsmith: no skills support target %q. Run `promptsmith list` without -t to see all skills.\n", target)
+		return nil
 	}
 	return w.Flush()
 }
