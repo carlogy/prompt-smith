@@ -123,3 +123,49 @@ func TestVersionFlagAndSubcommand_AgreeAndAreNonEmpty(t *testing.T) {
 			flagOut, subOut, buildVersion())
 	}
 }
+
+// TestVersionSubcommandAndFlag_GoRealStdoutNotStderr is a regression
+// test for a bug where the "version" subcommand's payload print used
+// cmd.Printf, which resolves via cobra's OutOrStderr() - stdout only
+// if something already called SetOut, stderr otherwise. Production
+// never calls SetOut, so `promptsmith version` printed to stderr, and
+// `V=$(promptsmith version)` captured nothing.
+//
+// It deliberately does NOT call root.SetOut/SetErr: doing so would
+// mask the bug rather than reproduce it (see captureRealStdio's
+// comment). Cobra's own --version flag path already writes via
+// OutOrStdout() (verified against the vendored cobra source), so it's
+// included here as a same-test baseline the subcommand must match.
+func TestVersionSubcommandAndFlag_GoRealStdoutNotStderr(t *testing.T) {
+	run := func(args []string) (stdout, stderr string) {
+		reg := testRegistry(t)
+		root := newRootCmd(reg)
+		root.SetArgs(args)
+
+		var execErr error
+		stdout, stderr = captureRealStdio(t, func() {
+			execErr = root.Execute()
+		})
+		if execErr != nil {
+			t.Fatalf("Execute(%v) error = %v, stderr = %s", args, execErr, stderr)
+		}
+		return stdout, stderr
+	}
+
+	subStdout, subStderr := run([]string{"version"})
+	flagStdout, flagStderr := run([]string{"--version"})
+
+	want := buildVersion()
+	if !strings.Contains(subStdout, want) {
+		t.Errorf("`version` real stdout missing %q, got:\n%s", want, subStdout)
+	}
+	if strings.Contains(subStderr, want) {
+		t.Errorf("`version` leaked the version string onto real stderr:\n%s", subStderr)
+	}
+	if !strings.Contains(flagStdout, want) {
+		t.Errorf("`--version` real stdout missing %q, got:\n%s", want, flagStdout)
+	}
+	if strings.Contains(flagStderr, want) {
+		t.Errorf("`--version` leaked the version string onto real stderr:\n%s", flagStderr)
+	}
+}

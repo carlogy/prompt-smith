@@ -806,3 +806,70 @@ func TestGenerate_UISeedsInitialInputsFromFlagsAndArgs(t *testing.T) {
 		t.Errorf("Initial = %+v, want %+v", got, want)
 	}
 }
+
+// TestGenerate_DefaultDeliveryGoesToRealStdoutNotStderr is a regression
+// test for a bug where the flag-only delivery path's fallback print
+// (deliver's "nothing else requested, print the prompt") used
+// cmd.Println, which resolves via cobra's OutOrStderr() - stdout only
+// if something already called SetOut, stderr otherwise. Production
+// never calls SetOut, so every generated prompt went to stderr,
+// silently breaking `promptsmith "goal" > file` and `| pbcopy`.
+//
+// It deliberately does NOT call root.SetOut/SetErr: doing so would
+// mask the bug rather than reproduce it (see captureRealStdio's
+// comment). Instead it runs Execute() exactly as production's
+// Execute() does and inspects the real os.Stdout/os.Stderr streams.
+func TestGenerate_DefaultDeliveryGoesToRealStdoutNotStderr(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "fix the flaky checkout test"})
+
+	var execErr error
+	stdout, stderr := captureRealStdio(t, func() {
+		execErr = root.Execute()
+	})
+
+	if execErr != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", execErr, stderr)
+	}
+
+	want := "<task>\nfix the flaky checkout test\n</task>"
+	if !strings.Contains(stdout, want) {
+		t.Errorf("real stdout missing %q, got:\n%s", want, stdout)
+	}
+	if strings.Contains(stderr, want) {
+		t.Errorf("the generated prompt leaked onto real stderr:\n%s", stderr)
+	}
+}
+
+// TestGenerate_TUIStdoutActionGoesToRealStdoutNotStderr is the same
+// regression, but for the TUI's ActionStdout delivery path (the other
+// cmd.Println(out) call site). See
+// TestGenerate_DefaultDeliveryGoesToRealStdoutNotStderr for why this
+// uses captureRealStdio instead of SetOut/SetErr.
+func TestGenerate_TUIStdoutActionGoesToRealStdoutNotStderr(t *testing.T) {
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		in.Skills = []string{"diagnose"}
+		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	root.SetArgs([]string{"-t", "generic", "goal"}) // no -s -> interactive + bare -> TUI
+
+	var execErr error
+	stdout, stderr := captureRealStdio(t, func() {
+		execErr = root.Execute()
+	})
+
+	if execErr != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", execErr, stderr)
+	}
+	if !strings.Contains(stdout, "pass/fail") {
+		t.Errorf("real stdout missing the TUI's chosen skill body, got:\n%s", stdout)
+	}
+	if strings.Contains(stderr, "pass/fail") {
+		t.Errorf("the generated prompt leaked onto real stderr:\n%s", stderr)
+	}
+}

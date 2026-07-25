@@ -18,6 +18,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/carlogy/prompt-smith/internal/registry"
@@ -38,7 +40,7 @@ func newValidateCmd(reg *registry.Registry) *cobra.Command {
 			if err := reg.Validate(); err != nil {
 				return err
 			}
-			cmd.Println("registry ok")
+			fmt.Fprintln(cmd.OutOrStdout(), "registry ok")
 			return nil
 		},
 	}

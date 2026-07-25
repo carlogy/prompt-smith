@@ -60,3 +60,31 @@ func TestValidate_InvalidRegistryErrors(t *testing.T) {
 		t.Errorf("expected the error to name the offending category, got: %v", err)
 	}
 }
+
+// TestValidate_OKGoesToRealStdoutNotStderr is a regression test for a
+// bug where the "ok" confirmation used cmd.Println, which resolves via
+// cobra's OutOrStderr() - stdout only if something already called
+// SetOut, stderr otherwise. Production never calls SetOut, so
+// `promptsmith validate` printed its success confirmation to stderr.
+//
+// It deliberately does NOT call cmd.SetOut/SetErr: doing so would mask
+// the bug rather than reproduce it (see captureRealStdio's comment).
+func TestValidate_OKGoesToRealStdoutNotStderr(t *testing.T) {
+	reg := testRegistry(t)
+	cmd := newValidateCmd(reg)
+
+	var execErr error
+	stdout, stderr := captureRealStdio(t, func() {
+		execErr = cmd.Execute()
+	})
+
+	if execErr != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", execErr, stderr)
+	}
+	if !strings.Contains(stdout, "ok") {
+		t.Errorf("real stdout missing the ok confirmation, got:\n%s", stdout)
+	}
+	if strings.Contains(stderr, "ok") {
+		t.Errorf("the ok confirmation leaked onto real stderr:\n%s", stderr)
+	}
+}

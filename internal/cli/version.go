@@ -101,7 +101,7 @@ func newVersionCmd() *cobra.Command {
 		Short: "Print the promptsmith version",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			cmd.Printf("promptsmith version %s\n", buildVersion())
+			fmt.Fprintf(cmd.OutOrStdout(), "promptsmith version %s\n", buildVersion())
 		},
 	}
 }

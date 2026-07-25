@@ -235,7 +235,7 @@ func runInteractive(cmd *cobra.Command, reg *registry.Registry, opts *generateOp
 	case tui.ActionWrite:
 		return writeFile(result.WritePath, out)
 	default: // tui.ActionStdout
-		cmd.Println(out)
+		fmt.Fprintln(cmd.OutOrStdout(), out)
 		return nil
 	}
 }
@@ -263,7 +263,7 @@ func deliver(cmd *cobra.Command, opts *generateOptions, out string) error {
 	}
 
 	if !delivered {
-		cmd.Println(out)
+		fmt.Fprintln(cmd.OutOrStdout(), out)
 	}
 	return nil
 }
