@@ -71,6 +71,34 @@ func TestBuildVersion_ReturnsNonEmptyString(t *testing.T) {
 	}
 }
 
+func TestBuildVersion_LdflagsOverrideWinsWhenSet(t *testing.T) {
+	// Simulate GoReleaser's `-X .../internal/cli.version=v1.2.3` by
+	// setting the package var directly, then restore it so we don't
+	// leak state into other tests.
+	old := version
+	defer func() { version = old }()
+
+	version = "v1.2.3"
+	if got := buildVersion(); got != "v1.2.3" {
+		t.Errorf("buildVersion() = %q, want the ldflags-set version %q", got, "v1.2.3")
+	}
+}
+
+func TestBuildVersion_FallsBackToReadBuildInfoWhenUnset(t *testing.T) {
+	old := version
+	defer func() { version = old }()
+
+	version = ""
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		t.Fatal("debug.ReadBuildInfo() ok = false, want true in a test binary")
+	}
+	want := formatVersion(info)
+	if got := buildVersion(); got != want {
+		t.Errorf("buildVersion() = %q, want the ReadBuildInfo fallback %q", got, want)
+	}
+}
+
 func TestVersionFlagAndSubcommand_AgreeAndAreNonEmpty(t *testing.T) {
 	run := func(args []string) string {
 		reg := testRegistry(t)

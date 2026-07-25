@@ -1,4 +1,4 @@
-.PHONY: fmt vet staticcheck build build-empty test test-e2e verify tidy update-golden gosec govulncheck security install install-empty ui-css
+.PHONY: fmt vet staticcheck build build-empty test test-e2e verify tidy update-golden gosec govulncheck security install install-empty ui-css release-check release-snapshot
 
 # fmt fails (non-zero exit) if any file needs gofmt, printing which ones.
 fmt:
@@ -93,3 +93,21 @@ ui-css:
 
 verify: fmt vet staticcheck build test security
 	@echo "verify: all checks passed"
+
+# release-check and release-snapshot require goreleaser
+# (https://goreleaser.com, see .goreleaser.yaml) on PATH:
+#   go install github.com/goreleaser/goreleaser/v2@latest
+# Neither is needed for normal development - only when working on the
+# release pipeline itself.
+
+# release-check validates .goreleaser.yaml's schema without building
+# anything.
+release-check:
+	goreleaser check
+
+# release-snapshot builds both variants for every target OS/arch
+# locally (into dist/, gitignored) without publishing or requiring a
+# git tag - use this to sanity-check a .goreleaser.yaml change before
+# it runs for real on a tagged release.
+release-snapshot:
+	goreleaser release --snapshot --clean

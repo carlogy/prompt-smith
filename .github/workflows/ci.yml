@@ -23,9 +23,9 @@ jobs:
     name: verify (fmt, vet, staticcheck, build, test, security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -66,9 +66,9 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -77,3 +77,38 @@ jobs:
 
       - name: Test
         run: go test -race ./...
+
+  # release-config guards .goreleaser.yaml on every push/PR, so a
+  # broken release config (deprecated keys, schema drift, a
+  # cross-compile target that stopped building) is caught here rather
+  # than at tag time when it's too late to fix before a release goes
+  # out. This isn't merged into `verify` or `test` because it exercises
+  # a different tool (goreleaser, not go/staticcheck) against a
+  # different input (.goreleaser.yaml, not source packages) - the 12
+  # cross-compile targets it builds also aren't covered by `test`,
+  # which only builds natively per-OS. `--snapshot` mode publishes
+  # nothing: no GitHub release, no tag, no token required.
+  release-config:
+    name: release-config (goreleaser check + snapshot build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean

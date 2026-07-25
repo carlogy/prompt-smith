@@ -1,0 +1,152 @@
+# GoReleaser config (v2 schema - see https://goreleaser.com).
+#
+# promptsmith ships TWO build variants of the same command
+# (github.com/carlogy/prompt-smith/cmd/promptsmith), selected by a Go
+# build tag (see internal/registry/embed_default.go and
+# embed_empty.go):
+#
+#   - promptsmith        (no tags)   - PRIMARY artifact. Embeds the
+#     built-in registry with all 11 bundled skills. "Simple start,
+#     generate prompts easily."
+#   - promptsmith-empty  (-tags empty) - SECONDARY artifact. Same
+#     categories, zero bundled skills, for users who supply their own
+#     via PROMPTSMITH_SKILLS_DIR. "A la carte, bring your own skills."
+#
+# Both variants are built, archived, and checksummed for every
+# release below.
+version: 2
+
+before:
+  hooks:
+    # Intentionally `go mod download`, NOT `go mod tidy`. Go 1.24+
+    # stamps the binary's Main.Version from VCS info at build time and
+    # appends "+dirty" if the working tree isn't clean relative to
+    # HEAD. `go mod tidy` can rewrite go.sum mid-release (e.g. if a
+    # dependency's metadata changed), which would dirty the tree and
+    # taint every binary's embedded version with "+dirty" - even
+    # though we override the version via ldflags below, a dirty tree
+    # is still a smell we don't want in a release run. `go mod
+    # download` only populates the module cache and never modifies
+    # the tree.
+    - go mod download
+
+builds:
+  # Default variant: no build tags, all 11 bundled skills.
+  - id: promptsmith
+    main: ./cmd/promptsmith
+    binary: promptsmith
+    env:
+      # Not a GoReleaser default - promptsmith has zero cgo, so build
+      # fully static, portable binaries for every target OS/arch.
+      - CGO_ENABLED=0
+    flags:
+      # Not a GoReleaser default - strip local filesystem paths from
+      # the binary for reproducible, portable builds.
+      - -trimpath
+    ldflags:
+      # Specifying ldflags here REPLACES GoReleaser's own defaults
+      # entirely (that's intended): -s -w strip debug info/symbol
+      # tables to shrink the binary, and -X stamps the exact release
+      # version into internal/cli.version (see internal/cli/version.go)
+      # so `promptsmith version`/`--version` report the tag verbatim
+      # instead of falling back to runtime/debug.ReadBuildInfo's
+      # pseudo-version heuristics.
+      - -s -w
+      - -X github.com/carlogy/prompt-smith/internal/cli.version=v{{.Version}}
+    # Deterministic mtimes inside the binary/archive, keyed off the
+    # commit being released rather than wall-clock build time.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+  # Empty variant: -tags empty, zero bundled skills. Same settings as
+  # the default build above except for the id, binary output
+  # directory (GoReleaser separates builds by id automatically), and
+  # the added build tag.
+  - id: promptsmith-empty
+    main: ./cmd/promptsmith
+    binary: promptsmith
+    tags:
+      - empty
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/carlogy/prompt-smith/internal/cli.version=v{{.Version}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  # More than one build means each archive needs an explicit `ids:`
+  # selector - otherwise GoReleaser doesn't know which build(s) belong
+  # in which archive. name_templates are deliberately distinct so the
+  # two variants never collide in dist/ or in a GitHub release's asset
+  # list.
+  - id: promptsmith
+    ids:
+      - promptsmith
+    name_template: "promptsmith_{{.Version}}_{{.Os}}_{{.Arch}}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+  - id: promptsmith-empty
+    ids:
+      - promptsmith-empty
+    name_template: "promptsmith-empty_{{.Version}}_{{.Os}}_{{.Arch}}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  # `name_template` is deprecated here as of GoReleaser v2.2 in favor
+  # of `version_template`.
+  version_template: "{{ .Version }}-snapshot-{{ .ShortCommit }}"
+
+changelog:
+  use: git
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  github:
+    owner: carlogy
+    name: prompt-smith
+  # Mark versions with a pre-release suffix (e.g. v1.2.3-rc.1) as
+  # GitHub pre-releases automatically instead of full releases.
+  prerelease: auto

@@ -24,11 +24,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// buildVersion derives a version string from the running binary's
-// embedded build info. No build-time ldflags/version-injection needed -
-// works with both `go install module@version` and local builds from a
-// git checkout.
+// version is overridden at build time via ldflags, e.g.:
+//
+//	go build -ldflags "-X github.com/carlogy/prompt-smith/internal/cli.version=v1.2.3"
+//
+// GoReleaser sets this on every release build (see .goreleaser.yaml) so
+// the printed version matches the git tag exactly, without depending on
+// debug.ReadBuildInfo's pseudo-version heuristics. Left empty for
+// `go build`/`go install` from a local checkout, where buildVersion
+// falls back to formatVersion below.
+var version string
+
+// buildVersion returns the ldflags-injected version if set (see the
+// package-level version var above - this is how GoReleaser stamps
+// release builds with the exact git tag). Otherwise it falls back to
+// deriving a version from the running binary's embedded build info,
+// which works with both `go install module@version` and local builds
+// from a git checkout with no ldflags at all.
 func buildVersion() string {
+	if version != "" {
+		return version
+	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
 		return "unknown"

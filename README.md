@@ -1,6 +1,7 @@
 # promptsmith
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Release](https://img.shields.io/github/v/release/carlogy/prompt-smith)](https://github.com/carlogy/prompt-smith/releases/latest)
 
 Generate portable, skill-aware prompts for any LLM or agent harness.
 
@@ -48,16 +49,92 @@ renders each one appropriately per target:
 
 ## Install
 
-Requires Go 1.26+.
+Requires Go 1.26+ (only matters if you build from source or use `go install`).
+
+### Download a release (recommended)
+
+Every [release](https://github.com/carlogy/prompt-smith/releases) publishes
+prebuilt archives for linux/darwin/windows x amd64/arm64. There are two
+variants - pick the one that matches what you want:
+
+| Archive pattern | Contains |
+|---|---|
+| `promptsmith_<version>_<os>_<arch>.tar.gz` (`.zip` on windows) | binary + all 11 built-in skills - the "just start generating prompts" build |
+| `promptsmith-empty_<version>_<os>_<arch>.tar.gz` (`.zip` on windows) | binary only, zero bundled skills - for supplying your own via `PROMPTSMITH_SKILLS_DIR` (see [Custom skills](#custom-skills)) |
+
+Download the one for your OS/arch, extract it, and put `promptsmith` on
+your `PATH`, e.g.:
 
 ```sh
-git clone <repo-url>
-cd prompt-smith
-make install          # go install ./cmd/promptsmith
+tar xzf promptsmith_0.1.0_darwin_arm64.tar.gz
+sudo mv promptsmith /usr/local/bin/
 ```
 
-This installs `promptsmith` to `$(go env GOPATH)/bin` (make sure that's
-on your `PATH`).
+See [Verifying a download](#verifying-a-download) below before trusting a
+downloaded binary.
+
+### go install
+
+```sh
+go install github.com/carlogy/prompt-smith/cmd/promptsmith@latest  # latest release
+go install github.com/carlogy/prompt-smith/cmd/promptsmith@v0.1.0  # pinned
+```
+
+This always builds the default variant (all 11 skills embedded) - build
+tags aren't part of a module version, so there's no `@version` form that
+selects the empty variant. To get the empty variant via `go install`
+instead, add the build tag to the invocation itself:
+
+```sh
+go install -tags empty github.com/carlogy/prompt-smith/cmd/promptsmith@latest
+```
+
+Either form installs to `$(go env GOPATH)/bin` (make sure that's on your
+`PATH`).
+
+### From source
+
+```sh
+git clone https://github.com/carlogy/prompt-smith.git
+cd prompt-smith
+make install          # go install ./cmd/promptsmith
+make install-empty    # or: the empty variant instead
+```
+
+### Verifying a download
+
+Every release also publishes a `checksums.txt` (sha256, one line per
+archive) and a [SLSA build provenance
+attestation](https://github.com/carlogy/prompt-smith/actions/workflows/release.yml)
+for every file, including `checksums.txt` itself - so verifying the
+checksums file also establishes that it (and everything it checksums) came
+from this repo's release workflow, not a tampered mirror.
+
+Check the sha256 sum against `checksums.txt` (run this from the directory
+you downloaded into; both tools only check the line matching a file that's
+actually present, so extra lines in `checksums.txt` for platforms you
+didn't download are reported as merely "missing", not a failure):
+
+```sh
+# macOS
+shasum -a 256 -c checksums.txt --ignore-missing
+
+# Linux
+sha256sum -c checksums.txt --ignore-missing
+```
+
+Then verify the provenance attestation with a recent [GitHub
+CLI](https://cli.github.com/) (`gh`):
+
+```sh
+gh attestation verify promptsmith_0.1.0_darwin_arm64.tar.gz --repo carlogy/prompt-smith
+```
+
+This proves the file was built by `carlogy/prompt-smith`'s own release
+workflow (not hand-uploaded or substituted), by checking a Sigstore-signed
+attestation against GitHub's transparency log - it does not by itself
+prove the release's *source code* is trustworthy, only that the binary
+matches what the workflow produced from whatever was tagged.
 
 ## Quick start
 
@@ -170,12 +247,15 @@ the CLI.
 
 ### Empty variant
 
-`make build-empty` / `make install-empty` build promptsmith with no
-bundled skills at all (just the same categories and target definitions,
-with no skills) - for anyone who only wants their own skills via
-`PROMPTSMITH_SKILLS_DIR` and would rather not carry the built-in set.
-Both install to the same `$GOBIN/promptsmith` path as the default build,
-so installing one replaces the other.
+The empty variant is promptsmith with no bundled skills at all (just the
+same categories and target definitions, with no skills) - for anyone who
+only wants their own skills via `PROMPTSMITH_SKILLS_DIR` and would rather
+not carry the built-in set. Get it as a prebuilt `promptsmith-empty_...`
+archive from a [release](https://github.com/carlogy/prompt-smith/releases),
+via `go install -tags empty ...` (see [Install](#install)), or build it
+yourself with `make build-empty` / `make install-empty`. `install-empty`
+installs to the same `$GOBIN/promptsmith` path as the default build, so
+installing one replaces the other.
 
 ## Development
 
@@ -200,8 +280,14 @@ See the `Makefile` for the full list of targets.
 
 Every push and pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 `make verify` plus a static check of the `-tags empty` build variant on
-Linux, and a `go build` + `go test -race` portability check across
-Linux, macOS, and Windows.
+Linux, a `go build` + `go test -race` portability check across Linux,
+macOS, and Windows, and a `release-config` job that validates
+`.goreleaser.yaml` (`goreleaser check` plus a snapshot build) so a broken
+release config is caught before it's needed. Pushing a tag matching
+`v*.*.*` separately runs
+[`.github/workflows/release.yml`](.github/workflows/release.yml), which
+builds and publishes the actual release - see
+[docs/releasing.md](docs/releasing.md) for the maintainer runbook.
 
 ## License
 
