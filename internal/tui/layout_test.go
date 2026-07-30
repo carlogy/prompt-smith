@@ -63,24 +63,29 @@ func TestComputeLayout_ZeroSizeFallsBackToAUsableDefault(t *testing.T) {
 	}
 }
 
-// TestComputeLayout_FieldHeightSumMatchesOldCountBasedMath is the
-// regression net for the fieldsHeight/minRequiredContentHeight
-// refactor from a bare numFields (a field *count*) to
-// totalFieldsHeight() (a sum of per-field heights). Every entry in
-// fieldHeights is still 1 in this phase, so numFields and
-// totalFieldsHeight() are numerically identical - meaning every
-// expected value below was hand-computed with the *old* formula
-// (fieldsHeight = numFields = 5) and must still match computeLayout's
-// output exactly. If this test ever goes red while fieldHeights is
-// untouched, the refactor changed observable behavior, which it isn't
-// supposed to.
+// TestComputeLayout_FieldHeightSumMatchesOldCountBasedMath pins
+// computeLayout's concrete output for a spread of terminal sizes. It
+// started life (Phase 0) as an equivalence check that the
+// numFields->totalFieldsHeight() refactor was behavior-preserving
+// while every fieldHeights entry was still 1 - hence the name and the
+// "hand-computed with the old formula" framing below, both kept
+// because the numbers still ARE what the old bare-numFields formula
+// would have produced for the five single-line fields; fieldsHeight
+// is simply no longer equal to numFields now that Examples (the sixth
+// field, examplesFieldHeight=4 rows) has landed. This is exactly the
+// moment its own original doc comment predicted and explicitly
+// permitted going red - "If this test ever goes red while fieldHeights
+// is untouched, the refactor changed observable behavior" (it's NOT
+// untouched now: this is Phase 1, not a refactor of Phase 0). Updating
+// the expectations here, rather than deleting the test, keeps it doing
+// its real job: catching any future accidental change to
+// computeLayout's arithmetic.
 //
 // The spread of sizes deliberately includes both zero-value fallback
 // (0x0) and a genuinely tiny-but-nonzero terminal (1x1), plus a size
 // that lands exactly one row under minRequiredContentHeight before the
-// floor kicks in (80x10: raw contentHeight = 10-1-2 = 7, one under the
-// 8-row floor) - the three cases most likely to expose an off-by-one
-// if the sum/count swap introduced one.
+// floor kicks in (80x10) - the cases most likely to expose an
+// off-by-one in the sum/count math.
 func TestComputeLayout_FieldHeightSumMatchesOldCountBasedMath(t *testing.T) {
 	cases := []struct {
 		name string
@@ -90,32 +95,32 @@ func TestComputeLayout_FieldHeightSumMatchesOldCountBasedMath(t *testing.T) {
 		{
 			name: "0x0 falls back to the 80x24 default",
 			w:    0, h: 0,
-			want: layout{leftContentWidth: 22, rightContentWidth: 50, contentHeight: 21, fieldsHeight: 5, skillsHeight: 15},
+			want: layout{leftContentWidth: 22, rightContentWidth: 50, contentHeight: 21, fieldsHeight: 9, skillsHeight: 11},
 		},
 		{
 			name: "1x1 degenerate: every dimension floors to its minimum",
 			w:    1, h: 1,
-			want: layout{leftContentWidth: 1, rightContentWidth: 1, contentHeight: 8, fieldsHeight: 5, skillsHeight: 2},
+			want: layout{leftContentWidth: 1, rightContentWidth: 1, contentHeight: 12, fieldsHeight: 9, skillsHeight: 2},
 		},
 		{
 			name: "80x24, the common default terminal, via the non-fallback path",
 			w:    80, h: 24,
-			want: layout{leftContentWidth: 22, rightContentWidth: 50, contentHeight: 21, fieldsHeight: 5, skillsHeight: 15},
+			want: layout{leftContentWidth: 22, rightContentWidth: 50, contentHeight: 21, fieldsHeight: 9, skillsHeight: 11},
 		},
 		{
 			name: "200x50, comfortably large",
 			w:    200, h: 50,
-			want: layout{leftContentWidth: 62, rightContentWidth: 130, contentHeight: 47, fieldsHeight: 5, skillsHeight: 41},
+			want: layout{leftContentWidth: 62, rightContentWidth: 130, contentHeight: 47, fieldsHeight: 9, skillsHeight: 37},
 		},
 		{
 			name: "10x4, small width and height both floor",
 			w:    10, h: 4,
-			want: layout{leftContentWidth: 1, rightContentWidth: 3, contentHeight: 8, fieldsHeight: 5, skillsHeight: 2},
+			want: layout{leftContentWidth: 1, rightContentWidth: 3, contentHeight: 12, fieldsHeight: 9, skillsHeight: 2},
 		},
 		{
 			name: "80x10, one row under minRequiredContentHeight before flooring",
 			w:    80, h: 10,
-			want: layout{leftContentWidth: 22, rightContentWidth: 50, contentHeight: 8, fieldsHeight: 5, skillsHeight: 2},
+			want: layout{leftContentWidth: 22, rightContentWidth: 50, contentHeight: 12, fieldsHeight: 9, skillsHeight: 2},
 		},
 	}
 
@@ -145,49 +150,56 @@ func TestFieldHeights_LengthMatchesNumFields(t *testing.T) {
 }
 
 // TestComputeLayout_FieldStackHeightGrowsWithPerFieldHeight is the
-// actual point of this refactor, not a redundant restatement of the
-// equivalence test above: it proves the fieldHeights/totalFieldsHeight
-// seam actually responds to a field being taller than one row, ahead
-// of a later phase wiring in a multi-line "Examples" textarea in place
-// of one of the current single-line textinputs. Do NOT delete this
-// once every fieldHeights entry is back to looking like "all 1s" after
-// that phase lands - that's exactly the state this test is written to
-// exercise (via a synthetic override, since constructing a real
-// multi-line field isn't in scope here).
+// actual point of the fieldHeights/totalFieldsHeight refactor, not a
+// redundant restatement of the equivalence test above: it proves the
+// seam actually responds to a field being taller than one row.
+// Originally (Phase 0) this simulated a hypothetical multi-line
+// Examples field via a synthetic override, since the real one hadn't
+// landed yet; now that it has (fieldHeights' real last entry is
+// examplesFieldHeight, 4 rows), the override below simulates a
+// hypothetically even-taller Examples field instead, to prove the seam
+// generalizes beyond the one height that happens to be shipped today -
+// the same point, just with the baseline now real instead of
+// hypothetical. Do NOT delete this once the shipped numbers stop
+// looking novel - that's exactly the state this test is written to
+// exercise.
 func TestComputeLayout_FieldStackHeightGrowsWithPerFieldHeight(t *testing.T) {
 	original := fieldHeights
 	defer func() { fieldHeights = original }()
 
-	// Baseline: all 5 fields at their current height (1 row each).
+	// Baseline: the real, shipped field stack - five 1-row fields plus
+	// the 4-row Examples field.
 	base := computeLayout(80, 24)
 
-	// Simulate swapping the last field for a 3-row field (e.g. a short
-	// Examples textarea) - the stack should grow by exactly (3-1) = 2
-	// extra rows, nothing more and nothing less.
-	fieldHeights = []int{1, 1, 1, 1, 3}
+	// Simulate a hypothetically even-taller Examples field (7 rows
+	// instead of 4) - the stack should grow by exactly the delta (3),
+	// nothing more and nothing less.
+	const grownExamplesRows = 7
+	const delta = grownExamplesRows - examplesFieldHeight
+	fieldHeights = []int{1, 1, 1, 1, 1, grownExamplesRows}
 	grown := computeLayout(80, 24)
 
-	wantFieldsHeight := base.fieldsHeight + 2
+	wantFieldsHeight := base.fieldsHeight + delta
 	if grown.fieldsHeight != wantFieldsHeight {
-		t.Errorf("fieldsHeight = %d, want %d (base %d + 2 extra rows for the taller field)",
-			grown.fieldsHeight, wantFieldsHeight, base.fieldsHeight)
+		t.Errorf("fieldsHeight = %d, want %d (base %d + %d extra rows for the taller field)",
+			grown.fieldsHeight, wantFieldsHeight, base.fieldsHeight, delta)
 	}
 
 	// At this terminal size contentHeight itself doesn't move (21 rows
 	// either way, comfortably above minRequiredContentHeight for both
-	// field stacks) - so the 2 extra rows the taller field claims must
+	// field stacks) - so the extra rows the taller field claims must
 	// come out of skillsHeight, confirming the budget actually
 	// reallocates rather than e.g. silently double-counting or
 	// clamping the difference away.
-	wantSkillsHeight := base.skillsHeight - 2
+	wantSkillsHeight := base.skillsHeight - delta
 	if grown.skillsHeight != wantSkillsHeight {
-		t.Errorf("skillsHeight = %d, want %d (base %d - 2 rows ceded to the taller field)",
-			grown.skillsHeight, wantSkillsHeight, base.skillsHeight)
+		t.Errorf("skillsHeight = %d, want %d (base %d - %d rows ceded to the taller field)",
+			grown.skillsHeight, wantSkillsHeight, base.skillsHeight, delta)
 	}
 
 	// minRequiredContentHeight must grow along with the field stack too
-	// - otherwise a terminal just tall enough for the old 5-row stack
-	// would let the new 7-row stack silently overflow past the terminal
+	// - otherwise a terminal just tall enough for the old stack would
+	// let the new, taller stack silently overflow past the terminal
 	// height on a small terminal, the same class of bug
 	// TestView_TotalHeightNeverExceedsTerminalHeight (view_height_test.go)
 	// guards against for the fixed-height case. A 1-row-tall terminal

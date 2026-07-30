@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -42,10 +43,11 @@ type item struct {
 }
 
 // model is the Bubble Tea model for the skill picker + live preview.
-// goal/context/constraints/role/outputFormat and the target are all
-// editable in place: text fields via their textinput, the target via
-// the arrow keys while focusTarget has focus. Every change recomputes
-// the preview via prompt.Build.
+// goal/context/constraints/role/outputFormat/examples and the target
+// are all editable in place: the first five via their single-line
+// textinput, examples via its multi-line textarea, the target via the
+// arrow keys while focusTarget has focus. Every change recomputes the
+// preview via prompt.Build.
 type model struct {
 	reg    *registry.Registry
 	target string
@@ -72,6 +74,8 @@ type model struct {
 	roleInput         textinput.Model
 	outputFormat      string
 	outputFormatInput textinput.Model
+	examples          string
+	examplesInput     textarea.Model
 
 	preview   string
 	previewVP viewport.Model
@@ -112,6 +116,24 @@ func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 	roleInput := newField(initial.Role, "persona to adopt")
 	outputFormatInput := newField(initial.OutputFormat, "response shape")
 
+	// The Examples textarea seeds from initial.Examples via
+	// prompt.JoinExamples, never by rendering the []string directly -
+	// that's the one shared representation prompt.SplitExamples can
+	// invert cleanly on read-back (see currentInputs). ShowLineNumbers
+	// and Prompt must be cleared BEFORE SetWidth, per SetWidth's own
+	// doc comment - both introduce per-line decoration none of the
+	// single-line textinput fields above have (they already clear
+	// their own Prompt for the same "no stray decoration" reason), and
+	// SetWidth's reserved-inner-width math accounts for both, so
+	// setting them after would leave stale width bookkeeping.
+	examplesInput := textarea.New()
+	examplesInput.Placeholder = "worked examples, separated by a line containing only ---"
+	examplesInput.ShowLineNumbers = false
+	examplesInput.Prompt = ""
+	examplesInput.SetWidth(examplesFieldWidth(l))
+	examplesInput.SetHeight(examplesRows)
+	examplesInput.SetValue(prompt.JoinExamples(initial.Examples))
+
 	m := model{
 		reg:               reg,
 		target:            initial.Target,
@@ -127,6 +149,8 @@ func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 		roleInput:         roleInput,
 		outputFormat:      initial.OutputFormat,
 		outputFormatInput: outputFormatInput,
+		examples:          prompt.JoinExamples(initial.Examples),
+		examplesInput:     examplesInput,
 		previewVP:         viewport.New(l.rightContentWidth-scrollbarWidth, l.contentHeight-1),
 	}
 	// An empty goal (bare `promptsmith` with no goal argument) starts
@@ -187,6 +211,24 @@ func firstSelectable(items []item) int {
 	return 0
 }
 
+// examplesFieldWidth is the Examples textarea's rendered width, shared
+// between newModel (before the first WindowSizeMsg) and the
+// WindowSizeMsg handler (after every resize) so the two can't drift.
+// Unlike the single-line fields' fieldWidth (see the WindowSizeMsg
+// handler), this does NOT subtract fieldLabelWidth/": "/markerWidth -
+// those account for a label sharing the SAME line as its value, which
+// only applies to the five "Label: value" fields. The Examples label
+// sits on its own line (viewExamplesField), so the textarea below it
+// is free to claim the full pane content width, matching the skill
+// list's content width above it in the same pane.
+func examplesFieldWidth(l layout) int {
+	w := l.leftContentWidth - scrollbarWidth
+	if w < minContentWidth {
+		w = minContentWidth
+	}
+	return w
+}
+
 // Init satisfies tea.Model.
 func (m model) Init() tea.Cmd {
 	return nil
@@ -227,6 +269,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.roleInput.Width = fieldWidth
 		m.outputFormatInput.Width = fieldWidth
 
+		// The Examples textarea has no inline label sharing its line
+		// (see viewExamplesField), so it doesn't subtract
+		// fieldLabelWidth/markerWidth like the five fields above - it
+		// gets the full pane content width instead (see
+		// examplesFieldWidth's doc comment). Both width AND height are
+		// set here even though the height never actually changes
+		// (examplesRows is fixed) - SetWidth's own doc comment requires
+		// SetHeight/SetWidth be called together after Prompt/
+		// ShowLineNumbers are set, and newModel already establishes
+		// that pairing once; resetting both here keeps the two call
+		// sites symmetric rather than one of them being "half" a
+		// resize.
+		m.examplesInput.SetWidth(examplesFieldWidth(l))
+		m.examplesInput.SetHeight(examplesRows)
+
 		// Re-wrap the preview to the new width - the viewport's
 		// content is pre-wrapped (see recomputePreview), so a resize
 		// leaves it wrapped to the stale width otherwise. This also
@@ -254,6 +311,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateRoleField(msg)
 		case focusOutputFormat:
 			return m.updateOutputFormatField(msg)
+		case focusExamples:
+			return m.updateExamplesField(msg)
 		case focusTarget:
 			return m.updateTargetField(msg)
 		}
@@ -292,6 +351,7 @@ func (m model) changeFocus(to focusZone) (tea.Model, tea.Cmd) {
 	m.constraintsInput.Blur()
 	m.roleInput.Blur()
 	m.outputFormatInput.Blur()
+	m.examplesInput.Blur()
 	m.focus = to
 
 	var cmd tea.Cmd
@@ -306,6 +366,8 @@ func (m model) changeFocus(to focusZone) (tea.Model, tea.Cmd) {
 		cmd = m.roleInput.Focus()
 	case focusOutputFormat:
 		cmd = m.outputFormatInput.Focus()
+	case focusExamples:
+		cmd = m.examplesInput.Focus()
 	}
 	return m, cmd
 }
@@ -355,6 +417,32 @@ func (m model) updateOutputFormatField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.changeFocus(focusSkills)
 	}
 	cmd := m.updateTextField(msg, &m.outputFormatInput, &m.outputFormat)
+	return m, cmd
+}
+
+// updateExamplesField routes a key to the Examples textarea while it's
+// focused. Esc blurs back to the skill list, matching every other
+// field - but Enter is deliberately NOT special-cased the way Esc is:
+// it's forwarded to the textarea unmodified, and the textarea's own
+// default keymap already binds Enter (and ctrl+m) to inserting a
+// newline. That's exactly what multi-line, "---"-separated examples
+// need, and it means this is the one field where Enter can't
+// confirm/submit the whole picker the way it does everywhere else
+// (Enter in updatePicker, or Ctrl+C/Esc canceling) - the user has to
+// Tab away first. That's an accepted tradeoff, not an oversight: making
+// Enter submit here would take away the only way to type a literal
+// newline into an example. footerHelpFor's focusExamples case exists
+// specifically to make the tradeoff discoverable, so don't "fix" this
+// by intercepting Enter to quit - that would silently break the one
+// thing this field exists for.
+func (m model) updateExamplesField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		return m.changeFocus(focusSkills)
+	}
+	var cmd tea.Cmd
+	m.examplesInput, cmd = m.examplesInput.Update(msg)
+	m.examples = m.examplesInput.Value()
+	m.recomputePreview()
 	return m, cmd
 }
 
@@ -531,6 +619,13 @@ func (m model) currentInputs() prompt.Inputs {
 		Constraints:  m.constraints,
 		Role:         m.role,
 		OutputFormat: m.outputFormat,
+		// prompt.SplitExamples is prompt.JoinExamples's inverse (used
+		// to seed m.examples in newModel) - dividing the textarea's one
+		// free-form string back into the []string prompt.Inputs.Examples
+		// expects, on "---"-only lines. Read from m.examples (kept in
+		// sync by updateExamplesField), not m.examplesInput.Value()
+		// directly, matching every other field's read-back pattern here.
+		Examples: prompt.SplitExamples(m.examples),
 	}
 }
 

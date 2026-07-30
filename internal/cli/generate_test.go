@@ -1172,6 +1172,182 @@ func TestGenerate_UISeedsGoalFromGoalFlag(t *testing.T) {
 	}
 }
 
+func TestGenerate_ExampleFlagRepeatable(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{
+		"-t", "generic", "-s", "diagnose",
+		"-e", "input: 1 -> output: one",
+		"-e", "input: 2 -> output: two",
+		"goal",
+	})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+
+	for _, want := range []string{
+		"<example>\ninput: 1 -> output: one\n</example>",
+		"<example>\ninput: 2 -> output: two\n</example>",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout missing %q, got:\n%s", want, stdout.String())
+		}
+	}
+	if n := strings.Count(stdout.String(), "<example>"); n != 2 {
+		t.Errorf("expected exactly 2 <example> blocks, got %d in:\n%s", n, stdout.String())
+	}
+}
+
+// TestGenerate_ExampleWithCommaIsNotSplit is the key regression test for
+// StringArrayVarP over StringSliceVarP: StringSlice treats its value as
+// CSV, so a single -e containing commas would silently fragment into
+// multiple broken examples with no error. StringArray appends the raw
+// value untouched, so one -e stays one <example>, comma and all.
+func TestGenerate_ExampleWithCommaIsNotSplit(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{
+		"-t", "generic", "-s", "diagnose",
+		"-e", "input: a, b, c -> output: 3",
+		"goal",
+	})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+
+	if n := strings.Count(stdout.String(), "<example>"); n != 1 {
+		t.Errorf("expected exactly 1 <example> block (comma must not split it), got %d in:\n%s", n, stdout.String())
+	}
+	want := "<example>\ninput: a, b, c -> output: 3\n</example>"
+	if !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout missing the full comma-bearing example %q, got:\n%s", want, stdout.String())
+	}
+}
+
+func TestGenerate_ExampleShortAndLongFormsMatch(t *testing.T) {
+	run := func(flag string) string {
+		reg := testRegistry(t)
+		root := newRootCmd(reg)
+		var stdout, stderr bytes.Buffer
+		root.SetOut(&stdout)
+		root.SetErr(&stderr)
+		root.SetArgs([]string{"-t", "generic", "-s", "diagnose", flag, "input: 1 -> output: one", "goal"})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+		}
+		return stdout.String()
+	}
+
+	short := run("-e")
+	long := run("--example")
+	if short != long {
+		t.Errorf("-e and --example produced different output:\n-e:       %q\n--example: %q", short, long)
+	}
+}
+
+func TestGenerate_NoExamplesOmitsSection(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "goal"}) // no -e
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "<examples>") {
+		t.Errorf("expected no <examples> section with no -e given, got:\n%s", stdout.String())
+	}
+}
+
+func TestGenerate_ExamplesSeedTUI(t *testing.T) {
+	defer stubInteractive(t, true)()
+
+	var gotExamples []string
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		gotExamples = in.Examples
+		in.Skills = []string{"diagnose"}
+		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{
+		"--tui",
+		"-e", "input: 1 -> output: one",
+		"-e", "input: 2 -> output: two",
+		"-g", "fix the flaky checkout test",
+	})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+
+	want := []string{"input: 1 -> output: one", "input: 2 -> output: two"}
+	if !slices.Equal(gotExamples, want) {
+		t.Errorf("TUI's initial Inputs.Examples = %v, want %v", gotExamples, want)
+	}
+}
+
+func TestGenerate_ExamplesSeedUI(t *testing.T) {
+	// Mirrors TestGenerate_UISeedsInitialInputsFromFlagsAndArgs, scoped
+	// to Examples.
+	var gotOpts server.Options
+	defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+		gotOpts = opts
+		return nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"--ui", "-e", "input: 1 -> output: one"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+
+	want := []string{"input: 1 -> output: one"}
+	if !slices.Equal(gotOpts.Initial.Examples, want) {
+		t.Errorf("server.Options.Initial.Examples = %v, want %v", gotOpts.Initial.Examples, want)
+	}
+}
+
+func TestGenerate_WhitespaceOnlyExampleDropped(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{
+		"-t", "generic", "-s", "diagnose",
+		"-e", "   ",
+		"-e", "input: 1 -> output: one",
+		"goal",
+	})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if n := strings.Count(stdout.String(), "<example>"); n != 1 {
+		t.Errorf("expected exactly 1 <example> block (the whitespace-only one dropped), got %d in:\n%s", n, stdout.String())
+	}
+}
+
 func TestGenerate_SkillsAllEmptyFallsBackToGoalOnly(t *testing.T) {
 	defer stubInteractive(t, false)() // picker must not launch
 

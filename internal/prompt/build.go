@@ -39,6 +39,7 @@ type Inputs struct {
 	Context      string
 	Constraints  string
 	OutputFormat string
+	Examples     []string
 }
 
 // Build assembles a complete prompt from the registry and the given
@@ -62,6 +63,12 @@ func Build(reg *registry.Registry, in Inputs) (string, error) {
 	section(&b, "tools", buildTools(target))
 	section(&b, "constraints", in.Constraints)
 	section(&b, "output_format", in.OutputFormat)
+	// <examples> is last on purpose. Anthropic's long-context guidance
+	// orders prompt content as longform data -> query -> instructions ->
+	// examples, and independent of that, examples are most legible sitting
+	// directly beneath the <output_format> they usually demonstrate rather
+	// than ahead of it.
+	examplesSection(&b, in.Examples)
 
 	return strings.TrimRight(b.String(), "\n"), nil
 }
@@ -133,6 +140,25 @@ func buildTools(target registry.TargetConfig) string {
 	return strings.Join(lines, "\n")
 }
 
+// trimAndDropEmpty trims surrounding whitespace from each element and
+// drops any that are empty after trimming, preserving input order and
+// never deduping. It backs both NormalizeSkills and NormalizeExamples:
+// the two normalize different fields with identical semantics, so this
+// holds the one implementation while each keeps its own exported name
+// and doc comment explaining its own callers - two names that can't
+// drift apart because there's only one body.
+func trimAndDropEmpty(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 // NormalizeSkills trims surrounding whitespace from each id and drops
 // any that are empty after trimming, preserving input order. It exists
 // because pflag's StringSlice flag (used for --skills) CSV-splits its
@@ -141,15 +167,19 @@ func buildTools(target registry.TargetConfig) string {
 // unknown skills. It does not dedupe (see resolveSkills) and does not
 // case-fold: skill matching stays case-sensitive.
 func NormalizeSkills(ids []string) []string {
-	out := make([]string, 0, len(ids))
-	for _, id := range ids {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		out = append(out, id)
-	}
-	return out
+	return trimAndDropEmpty(ids)
+}
+
+// NormalizeExamples trims surrounding whitespace from each example and
+// drops any that are empty after trimming, preserving input order and
+// not deduping - two identical examples are a legitimate (if redundant)
+// input, not something to silently collapse. It's called both by
+// examplesSection below (for Examples set directly, e.g. via the CLI's
+// repeated -e/--example flag) and by SplitExamples (for the TUI/web
+// single multi-line field, after it's divided into pieces), so both
+// paths into Inputs.Examples end up normalized the same way.
+func NormalizeExamples(examples []string) []string {
+	return trimAndDropEmpty(examples)
 }
 
 // resolveSkills normalizes ids (trimming whitespace and dropping empty
@@ -187,4 +217,102 @@ func section(b *strings.Builder, tag, body string) {
 		b.WriteString("\n")
 	}
 	fmt.Fprintf(b, "<%s>\n%s\n</%s>\n", tag, strings.TrimSpace(body), tag)
+}
+
+// examplesSection appends the <examples> section: a wrapper tag around
+// one <example> child per entry in examples (after NormalizeExamples),
+// with a single blank line between consecutive children. It's omitted
+// entirely when examples is empty after normalization, mirroring
+// section()'s empty-body handling. This can't be built with section()
+// itself: section() only knows how to wrap one flat, already-plain-text
+// body in a single tag, and has no notion of a tag that contains other
+// tags, so <examples>/<example> nesting needs its own builder.
+//
+// Every tag here - <examples>, </examples>, <example>, </example> -
+// sits alone on its own line. That's a hard contract, not a formatting
+// preference: internal/prompthl.Classify matches lines against
+// ^<[a-z_]+>$ / ^</[a-z_]+>$ to decide what to syntax-highlight in the
+// TUI and web previews, and <example> already satisfies that pattern,
+// so nested highlighting comes for free - but only for as long as no
+// tag ever shares a line with anything else.
+func examplesSection(b *strings.Builder, examples []string) {
+	examples = NormalizeExamples(examples)
+	if len(examples) == 0 {
+		return
+	}
+
+	children := make([]string, 0, len(examples))
+	for _, ex := range examples {
+		children = append(children, fmt.Sprintf("<example>\n%s\n</example>", ex))
+	}
+
+	if b.Len() > 0 {
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(b, "<examples>\n%s\n</examples>\n", strings.Join(children, "\n\n"))
+}
+
+// SplitExamples divides one multi-line field into individual examples by
+// splitting on any line whose content is exactly "---" after trimming
+// surrounding whitespace, then runs the pieces through NormalizeExamples
+// (trimming each and dropping empties). It exists because the TUI and
+// web UI each expose Examples as a single free-form textarea rather than
+// the CLI's repeated -e/--example flag, so both need one shared way to
+// turn that one field into the []string prompt.Inputs.Examples expects.
+//
+// "---" was chosen over, say, a blank-line separator for two reasons:
+// it matches the "---"-delimited frontmatter convention SKILL.md
+// already uses elsewhere in this repo (see
+// internal/registry/userskills.go's parseSkillMD), and unlike a
+// blank-line separator, it survives examples that themselves contain
+// internal blank lines - which multi-line input/output example pairs
+// routinely do.
+func SplitExamples(s string) []string {
+	// Normalize CRLF and lone CR to LF first. This matters: HTML
+	// <textarea> submissions arrive CRLF-encoded, so without this both
+	// the separator-line detection below and the example bodies
+	// themselves would silently corrupt on any browser-submitted input.
+	// Mirrors parseSkillMD's normalization of the same problem.
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+
+	lines := strings.Split(s, "\n")
+	groups := make([]string, 0, 1)
+	var current []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "---" {
+			groups = append(groups, strings.Join(current, "\n"))
+			current = nil
+			continue
+		}
+		current = append(current, line)
+	}
+	groups = append(groups, strings.Join(current, "\n"))
+
+	return NormalizeExamples(groups)
+}
+
+// JoinExamples is SplitExamples's inverse: it runs examples through
+// NormalizeExamples, then joins them back into one multi-line string
+// with the same "\n---\n" separator line SplitExamples divides on.
+// Nil/empty input (or input that normalizes away to nothing) returns
+// "" rather than a lone "---", so an unseeded Examples field renders
+// as an empty textarea, not stray separator punctuation.
+//
+// It exists for the opposite direction from SplitExamples: seeding the
+// TUI/web UI's single Examples textarea from an already-assembled
+// []string. Today that's the web UI (server/page.go's initialData,
+// seeded from app.initial.Examples - itself sourced from --ui's
+// flags/args); the TUI's own textarea field will need the same seeding
+// once it lands. Round-trip contract both callers rely on:
+// SplitExamples(JoinExamples(x)) == NormalizeExamples(x) for any x -
+// so the value a user sees on page load is exactly what rebuilds back
+// out of the textarea on the very next submit, with no drift from
+// whitespace or ordering.
+func JoinExamples(examples []string) string {
+	examples = NormalizeExamples(examples)
+	if len(examples) == 0 {
+		return ""
+	}
+	return strings.Join(examples, "\n---\n")
 }

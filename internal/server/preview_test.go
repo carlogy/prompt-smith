@@ -230,3 +230,91 @@ func TestHandlePreview_IncludesDownloadFilename(t *testing.T) {
 		t.Errorf("fragment missing a suggested download filename, got:\n%s", body)
 	}
 }
+
+// TestHandlePreview_ExamplesFieldSplitsIntoMultipleExampleBlocks proves
+// the one "examples" form key (a single textarea - see index.html)
+// gets divided by prompt.SplitExamples (preview.go) into as many
+// <example> children as "---"-separated pieces it contains, mirroring
+// internal/prompt's own TestBuild_ExamplesSectionShape but exercised
+// through the actual HTTP form-parsing path rather than calling
+// prompt.Build directly.
+func TestHandlePreview_ExamplesFieldSplitsIntoMultipleExampleBlocks(t *testing.T) {
+	app := testApp()
+	form := url.Values{
+		"target":   {"generic"},
+		"goal":     {"x"},
+		"examples": {"first example\n---\nsecond example"},
+	}
+	req := newLocalRequest(http.MethodPost, "/preview", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if n := strings.Count(body, "&lt;example&gt;"); n != 2 {
+		t.Errorf("expected 2 <example> blocks, found %d, got:\n%s", n, body)
+	}
+	if !strings.Contains(body, "first example") || !strings.Contains(body, "second example") {
+		t.Errorf("fragment missing one or both examples, got:\n%s", body)
+	}
+}
+
+// TestHandlePreview_EmptyExamplesRendersNoExamplesSection proves an
+// empty (or whitespace-only) examples textarea omits the whole
+// <examples> wrapper, mirroring prompt.TestBuild_ExamplesOmittedWhenEmpty
+// through the HTTP path.
+func TestHandlePreview_EmptyExamplesRendersNoExamplesSection(t *testing.T) {
+	app := testApp()
+	form := url.Values{
+		"target":   {"generic"},
+		"goal":     {"x"},
+		"examples": {"   "},
+	}
+	req := newLocalRequest(http.MethodPost, "/preview", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if strings.Contains(body, "examples") {
+		t.Errorf("expected no <examples> section for a blank examples field, got:\n%s", body)
+	}
+}
+
+// TestHandlePreview_ExamplesFieldNormalizesCRLF proves the browser-
+// realistic case: a <textarea> submits CRLF line endings, and
+// prompt.SplitExamples's CRLF normalization (see build.go) must still
+// recognize the "---" separator line and keep each example's own
+// internal line breaks intact - the exact failure mode that
+// normalization exists to prevent (see internal/prompt's own
+// TestSplitExamples CRLF cases, exercised there without an HTTP round
+// trip; this proves the same behavior survives actually going through
+// url.Values encoding and r.FormValue).
+func TestHandlePreview_ExamplesFieldNormalizesCRLF(t *testing.T) {
+	app := testApp()
+	form := url.Values{
+		"target":   {"generic"},
+		"goal":     {"x"},
+		"examples": {"first example\r\n---\r\nsecond example"},
+	}
+	req := newLocalRequest(http.MethodPost, "/preview", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if n := strings.Count(body, "&lt;example&gt;"); n != 2 {
+		t.Errorf("expected 2 <example> blocks from a CRLF-separated field, found %d, got:\n%s", n, body)
+	}
+	if !strings.Contains(body, "first example") || !strings.Contains(body, "second example") {
+		t.Errorf("fragment missing one or both examples, got:\n%s", body)
+	}
+	// A literal "\r" surviving into the rendered output would mean the
+	// CRLF normalization didn't run before splitting.
+	if strings.Contains(body, "\r") {
+		t.Errorf("fragment contains an unnormalized carriage return, got:\n%q", body)
+	}
+}

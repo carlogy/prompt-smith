@@ -375,10 +375,12 @@ func TestView_SkillListScrollsToKeepCursorVisible(t *testing.T) {
 	// fixtureRegistry on "generic" produces exactly 4 items:
 	// [header:debugging, diagnose, header:testing, verify]
 	// (agent-only is excluded: unsupported on generic). Height=11 ->
-	// contentHeight=8, minus the fixed 5-row fields section ->
-	// skillsHeight=3 -> a 2-row skill list window (skillsHeight minus
-	// the "Skills" title line), so this small fixture is enough to
-	// force real scrolling without a bigger one.
+	// raw contentHeight=8, which is below minRequiredContentHeight (the
+	// 9-row field stack - five 1-row fields plus the 4-row Examples
+	// field - plus targetHeight plus minSkillsHeight = 12), so it
+	// floors to 12 -> skillsHeight=2 -> a 1-row skill list window
+	// (skillsHeight minus the "Skills" title line), so this small
+	// fixture is enough to force real scrolling without a bigger one.
 	reg := fixtureRegistry()
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
 

@@ -41,7 +41,7 @@ func TestFocus_TabCyclesForwardWithWraparound(t *testing.T) {
 
 	want := []focusZone{
 		focusGoal, focusContext, focusConstraints, focusRole, focusOutputFormat,
-		focusPreview, focusTarget, focusSkills, // wraps back around
+		focusExamples, focusPreview, focusTarget, focusSkills, // wraps back around
 	}
 	cur := m
 	for i, w := range want {
@@ -58,7 +58,7 @@ func TestFocus_ShiftTabCyclesBackwardWithWraparound(t *testing.T) {
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "g"})
 
 	want := []focusZone{
-		focusTarget, focusPreview, focusOutputFormat, focusRole, focusConstraints, focusContext,
+		focusTarget, focusPreview, focusExamples, focusOutputFormat, focusRole, focusConstraints, focusContext,
 		focusGoal, focusSkills, // wraps back around
 	}
 	cur := m
@@ -104,14 +104,14 @@ func TestFocus_PreviewFocusedUpDownScrollPreview(t *testing.T) {
 	m2 := updated.(model)
 
 	// Tab order: skills -> goal -> context -> constraints -> role ->
-	// outputFormat -> preview = 6 tabs to reach the preview.
+	// outputFormat -> examples -> preview = 7 tabs to reach the preview.
 	cur := m2
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 7; i++ {
 		u, _ := cur.Update(tea.KeyMsg{Type: tea.KeyTab})
 		cur = u.(model)
 	}
 	if cur.focus != focusPreview {
-		t.Fatalf("expected focus on preview after 6 tabs, got %v", cur.focus)
+		t.Fatalf("expected focus on preview after 7 tabs, got %v", cur.focus)
 	}
 
 	before := cur.previewVP.YOffset
@@ -158,12 +158,12 @@ func TestFocus_SpaceDoesNothingWhenPreviewFocused(t *testing.T) {
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "g"})
 
 	cur := m
-	for i := 0; i < 6; i++ { // skills -> ... -> preview
+	for i := 0; i < 7; i++ { // skills -> ... -> preview
 		u, _ := cur.Update(tea.KeyMsg{Type: tea.KeyTab})
 		cur = u.(model)
 	}
 	if cur.focus != focusPreview {
-		t.Fatalf("expected preview focus after 6 tabs, got %v", cur.focus)
+		t.Fatalf("expected preview focus after 7 tabs, got %v", cur.focus)
 	}
 
 	updated, _ := cur.Update(tea.KeyMsg{Type: tea.KeySpace})
@@ -202,12 +202,12 @@ func TestFocus_ActionKeysFireFromPreviewFocusToo(t *testing.T) {
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "g", Skills: []string{"diagnose"}})
 
 	cur := m
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 7; i++ {
 		u, _ := cur.Update(tea.KeyMsg{Type: tea.KeyTab})
 		cur = u.(model)
 	}
 	if cur.focus != focusPreview {
-		t.Fatalf("expected preview focus after 6 tabs, got %v", cur.focus)
+		t.Fatalf("expected preview focus after 7 tabs, got %v", cur.focus)
 	}
 
 	updated, cmd := cur.Update(tea.KeyMsg{Type: tea.KeyEnter})

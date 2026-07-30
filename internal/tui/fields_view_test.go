@@ -77,12 +77,12 @@ func TestView_FocusedPreviewIsMarked(t *testing.T) {
 	m2 := updated.(model)
 
 	cur := m2
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 7; i++ {
 		u, _ := cur.Update(tea.KeyMsg{Type: tea.KeyTab})
 		cur = u.(model)
 	}
 	if cur.focus != focusPreview {
-		t.Fatalf("expected preview focus after 6 tabs, got %v", cur.focus)
+		t.Fatalf("expected preview focus after 7 tabs, got %v", cur.focus)
 	}
 
 	got := stripANSI(cur.View())
@@ -112,8 +112,9 @@ func TestView_FieldRowsDoNotWrapWithLongValues(t *testing.T) {
 	// leaving it to the input's own horizontal scroll. A per-line WIDTH
 	// check can't catch this (each wrapped sub-line individually fits,
 	// by definition) - the real signal is the LINE COUNT: viewFields
-	// must always produce exactly numFields lines, wrapping produces
-	// more.
+	// must always produce exactly totalFieldsHeight() lines (numFields
+	// no longer doubles as a height once Examples' textarea renders
+	// more than one row - see layout.go), wrapping produces more.
 	reg := fixtureRegistry()
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 20})
@@ -129,9 +130,9 @@ func TestView_FieldRowsDoNotWrapWithLongValues(t *testing.T) {
 	l := computeLayout(cur.termWidth, cur.termHeight)
 	fieldsBlock := cur.viewFields(l.leftContentWidth)
 	lines := strings.Split(fieldsBlock, "\n")
-	if len(lines) != numFields {
+	if len(lines) != totalFieldsHeight() {
 		t.Errorf("viewFields produced %d lines, want exactly %d (a field row wrapped): %q",
-			len(lines), numFields, stripANSI(fieldsBlock))
+			len(lines), totalFieldsHeight(), stripANSI(fieldsBlock))
 	}
 
 	maxWidth := l.leftContentWidth - scrollbarWidth

@@ -21,6 +21,7 @@ import (
 	"net/http"
 
 	"github.com/carlogy/prompt-smith/internal/fielddesc"
+	"github.com/carlogy/prompt-smith/internal/prompt"
 )
 
 // indexPageData is what index.html (see assets/templates/index.html) renders
@@ -61,13 +62,19 @@ type targetOptionData struct {
 
 // initialData is app.initial's picker-relevant fields, reshaped for
 // the template - Skills becomes per-skillOptionData.Checked above
-// rather than being rendered directly.
+// rather than being rendered directly, and Examples becomes one
+// joined string (see prompt.JoinExamples) rather than the []string
+// app.initial.Examples actually holds: {{.Initial.Examples}} in
+// index.html feeds a single <textarea>, and handing html/template a
+// []string there would render Go's "[a b c]" slice syntax instead of
+// the "---"-separated text SplitExamples (preview.go) expects back.
 type initialData struct {
 	Goal         string
 	Role         string
 	Context      string
 	Constraints  string
 	OutputFormat string
+	Examples     string
 }
 
 // fieldHints carries the canonical descriptive sentence (see
@@ -81,6 +88,7 @@ type fieldHints struct {
 	Context      string
 	Constraints  string
 	OutputFormat string
+	Examples     string
 }
 
 // handleIndex serves the page: the same skill/category/target data
@@ -139,9 +147,15 @@ func (app *application) handleIndex(w http.ResponseWriter, r *http.Request) {
 			Context:      app.initial.Context,
 			Constraints:  app.initial.Constraints,
 			OutputFormat: app.initial.OutputFormat,
+			// prompt.JoinExamples is SplitExamples's inverse (see
+			// preview.go's form parsing) - it turns the []string
+			// app.initial.Examples holds back into the one
+			// "---"-separated string the textarea seeds from.
+			Examples: prompt.JoinExamples(app.initial.Examples),
 		},
 		AdvancedOpen: app.initial.Role != "" || app.initial.Context != "" ||
-			app.initial.Constraints != "" || app.initial.OutputFormat != "",
+			app.initial.Constraints != "" || app.initial.OutputFormat != "" ||
+			len(app.initial.Examples) > 0,
 		Hints: fieldHints{
 			Target:       fielddesc.Sentence(fielddesc.Target),
 			Goal:         fielddesc.Sentence(fielddesc.Goal),
@@ -149,6 +163,7 @@ func (app *application) handleIndex(w http.ResponseWriter, r *http.Request) {
 			Context:      fielddesc.Sentence(fielddesc.Context),
 			Constraints:  fielddesc.Sentence(fielddesc.Constraints),
 			OutputFormat: fielddesc.Sentence(fielddesc.OutputFormat),
+			Examples:     fielddesc.Sentence(fielddesc.Examples),
 		},
 	}
 

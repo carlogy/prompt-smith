@@ -34,6 +34,7 @@ const (
 	Context      = "context"
 	Constraints  = "constraints"
 	OutputFormat = "outputFormat"
+	Examples     = "examples"
 )
 
 // sentences holds the canonical sentence for each known field.
@@ -44,6 +45,7 @@ var sentences = map[string]string{
 	Context:      "Background the model should know.",
 	Constraints:  "Rules the solution must respect.",
 	OutputFormat: "How the model should shape its response (e.g. a diff, JSON, bullets).",
+	Examples:     "Worked examples of the output you want, ideally 3-5; separate multiple examples with a line containing only ---.",
 }
 
 // Sentence returns the canonical descriptive sentence for field, or

@@ -32,15 +32,17 @@ func TestView_TotalHeightNeverExceedsTerminalHeight(t *testing.T) {
 	reg := fixtureRegistry()
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal", Skills: []string{"diagnose"}})
 
-	// Since P3c, the fields section is a fixed numFields rows, on top of
-	// a minimally-useful skills section (minSkillsHeight) and the
-	// fixed one-row target line (targetHeight) - that's a hard
-	// structural floor (plus borders + footer) the layout can't shrink
-	// below, no matter how tiny the terminal actually is. Below that
-	// floor, View() clamps to the floor rather than the terminal's
-	// too-small height; at or above it, it must never exceed the
-	// terminal - both bounds checked explicitly.
-	minimumUsableHeight := numFields + targetHeight + minSkillsHeight + paneBorderRows + footerHeight
+	// Since P3c, the fields section is a fixed totalFieldsHeight() rows
+	// (no longer bare numFields - Examples' textarea renders taller
+	// than one row, see layout.go), on top of a minimally-useful skills
+	// section (minSkillsHeight) and the fixed one-row target line
+	// (targetHeight) - that's a hard structural floor (plus borders +
+	// footer) the layout can't shrink below, no matter how tiny the
+	// terminal actually is. Below that floor, View() clamps to the
+	// floor rather than the terminal's too-small height; at or above
+	// it, it must never exceed the terminal - both bounds checked
+	// explicitly.
+	minimumUsableHeight := totalFieldsHeight() + targetHeight + minSkillsHeight + paneBorderRows + footerHeight
 
 	for _, h := range []int{6, 7, 8, 10, 24, 40} {
 		updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: h})

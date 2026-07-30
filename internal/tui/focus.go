@@ -28,6 +28,7 @@ const (
 	focusConstraints
 	focusRole
 	focusOutputFormat
+	focusExamples
 	focusPreview
 	focusTarget
 )
@@ -36,10 +37,17 @@ const (
 // before focusSkills (i.e. right after focusPreview on the wrap) rather
 // than at the front, so that the default starting zone (focusSkills,
 // the zero value) is unaffected and every existing "N tabs from skills
-// to <zone>" distance - notably "6 tabs to preview" - stays correct.
+// to <zone>" distance - notably "6 tabs to preview" (now 7, with
+// focusExamples inserted ahead of it) - stays derivable from this one
+// list rather than needing to change independently of it. focusExamples
+// sits right after focusOutputFormat, matching where the Examples
+// field renders visually (last of the six fields, directly above the
+// preview pane it sits next to in Tab order) - following visual order
+// is the same reasoning every other field's position in this list
+// already relies on.
 var focusCycle = []focusZone{
 	focusTarget, focusSkills, focusGoal, focusContext, focusConstraints,
-	focusRole, focusOutputFormat, focusPreview,
+	focusRole, focusOutputFormat, focusExamples, focusPreview,
 }
 
 // nextFocus/prevFocus advance the cycle with wraparound. An unrecognized

@@ -21,3 +21,14 @@ Don't change assertions; add no new dependencies.
 <output_format>
 Return the root cause and the fix as a unified diff.
 </output_format>
+
+<examples>
+<example>
+Root cause: X.
+
+```diff
+-old
++new
+```
+</example>
+</examples>

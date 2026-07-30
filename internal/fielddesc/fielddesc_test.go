@@ -24,7 +24,7 @@ import "testing"
 // surface (the web hint, the TUI footer) can end up silently rendering
 // blank text for a field that exists but was never given copy.
 func TestSentence_EveryKnownFieldHasOne(t *testing.T) {
-	for _, field := range []string{Target, Goal, Role, Context, Constraints, OutputFormat} {
+	for _, field := range []string{Target, Goal, Role, Context, Constraints, OutputFormat, Examples} {
 		if Sentence(field) == "" {
 			t.Errorf("Sentence(%q) is empty - every known field constant must have a sentence", field)
 		}

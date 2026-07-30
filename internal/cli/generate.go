@@ -67,6 +67,7 @@ type generateOptions struct {
 	constraints  string
 	role         string
 	outputFormat string
+	examples     []string
 	toClipboard  bool
 	out          string
 	quick        bool
@@ -87,6 +88,14 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 	cmd.Flags().StringVarP(&opts.constraints, "constraints", "c", "", "constraints the solution must respect")
 	cmd.Flags().StringVarP(&opts.role, "role", "r", "", "role/persona to open the prompt with")
 	cmd.Flags().StringVarP(&opts.outputFormat, "output-format", "f", "", "desired shape of the response")
+	// StringArrayVarP, not StringSliceVarP: StringSlice CSV-splits its
+	// value on every comma, and a worked example is extremely likely to
+	// contain one ("input: a, b, c -> output: 3") - that would silently
+	// fragment into multiple broken examples with no error. StringArray
+	// appends each occurrence verbatim instead. This repo has already
+	// shipped exactly that bug once with --skills (see NormalizeSkills's
+	// doc comment); --example doesn't get to repeat it.
+	cmd.Flags().StringArrayVarP(&opts.examples, "example", "e", nil, "a worked example of the desired output (repeatable)")
 	cmd.Flags().BoolVarP(&opts.toClipboard, "copy", "y", false, "copy the prompt to the clipboard instead of stdout")
 	cmd.Flags().StringVarP(&opts.out, "out", "o", "", "write the prompt to this file instead of stdout")
 	cmd.Flags().BoolVarP(&opts.quick, "quick", "q", false, "never launch the interactive picker, even in a terminal")
@@ -111,6 +120,14 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 	// (from an unquoted "-s architect, ") would skew both counts even
 	// though only one skill actually resolves.
 	opts.skills = prompt.NormalizeSkills(opts.skills)
+
+	// Normalized here too, for the same reason: prompt.Build would
+	// normalize on its own, but normalizing at the boundary means the
+	// TUI picker and the web UI form are seeded with already-clean
+	// values (see runInteractive/runUI below), and Phase 3's lint rule
+	// that counts examples needs that count to be accurate rather than
+	// inflated by stray whitespace-only entries.
+	opts.examples = prompt.NormalizeExamples(opts.examples)
 
 	// Runs before resolveGoal deliberately: if someone writes
 	// `-g "goal" -s a, b`, the actionable skill-list hint should print
@@ -149,6 +166,7 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 		Constraints:  opts.constraints,
 		Role:         opts.role,
 		OutputFormat: opts.outputFormat,
+		Examples:     opts.examples,
 	})
 	if err != nil {
 		return err
@@ -281,6 +299,7 @@ func runUI(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, go
 			Constraints:  opts.constraints,
 			Role:         opts.role,
 			OutputFormat: opts.outputFormat,
+			Examples:     opts.examples,
 		},
 	})
 }
@@ -298,6 +317,7 @@ func runInteractive(cmd *cobra.Command, reg *registry.Registry, opts *generateOp
 		Constraints:  opts.constraints,
 		Role:         opts.role,
 		OutputFormat: opts.outputFormat,
+		Examples:     opts.examples,
 	})
 	if err != nil {
 		return err

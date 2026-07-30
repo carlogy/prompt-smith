@@ -52,11 +52,14 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 		`value="diagnose"`, // a known skill id from the fixture registry
 		`Hard bugs.`,       // diagnose's WhenToUse, in the picker
 		`<textarea id="goal"`,
-		`navigator.clipboard`,                 // the copy button's implementation
-		`select-caret`,                        // the custom dropdown chevron
-		`The persona the model should adopt.`, // a field hint, proving hints render
-		`promptsmith:refresh`,                 // the custom trigger Clear fires to rebuild the preview
-		`id="preview-indicator"`,              // the htmx loading indicator
+		`<label for="examples"`, // Examples has a proper label/for association like every other field
+		`<textarea id="examples" name="examples"`,
+		`Worked examples of the output you want`, // Examples' fielddesc hint, proving it isn't hardcoded
+		`navigator.clipboard`,                    // the copy button's implementation
+		`select-caret`,                           // the custom dropdown chevron
+		`The persona the model should adopt.`,    // a field hint, proving hints render
+		`promptsmith:refresh`,                    // the custom trigger Clear fires to rebuild the preview
+		`id="preview-indicator"`,                 // the htmx loading indicator
 		`id="download-button"`,
 		`id="clear-button"`,
 		`data-skill-row`,       // the target-filtering hook on each skill row
@@ -75,6 +78,7 @@ func TestHandleIndex_RendersForm(t *testing.T) {
 		`placeholder="e.g. a senior Go engineer"`,
 		`placeholder="e.g. checkout_test.go:42 fails ~1 in 5 in CI"`,
 		`placeholder="e.g. no new dependencies; keep the public API"`,
+		`placeholder="e.g. a worked input/output pair; separate multiple examples with a line containing only ---"`,
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(body, want) {
@@ -167,6 +171,7 @@ func TestHandleIndex_SeedsInitialValues(t *testing.T) {
 		Context:      "seeded context",
 		Constraints:  "seeded constraints",
 		OutputFormat: "seeded output format",
+		Examples:     []string{"first seeded example", "second seeded example"},
 	})
 	req := newLocalRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -196,6 +201,14 @@ func TestHandleIndex_SeedsInitialValues(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing seeded value %q, got:\n%s", want, body)
 		}
+	}
+
+	// Examples is seeded as prompt.JoinExamples's joined string, not
+	// the raw []string - the two examples must appear separated by
+	// the "---" line the textarea (and SplitExamples on the next
+	// submit) both expect, not as Go's "[a b]" slice formatting.
+	if !strings.Contains(body, "first seeded example\n---\nsecond seeded example") {
+		t.Errorf("expected Examples seeded as one \"---\"-joined string, got:\n%s", body)
 	}
 }
 
@@ -231,6 +244,24 @@ func TestHandleIndex_AdvancedOpenWhenSeeded(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, advancedDetailsOpenTag) {
 		t.Errorf("expected the optional fields to render open when Role was seeded, got:\n%s", body)
+	}
+}
+
+// TestHandleIndex_AdvancedOpenWhenExamplesSeeded proves Examples
+// counts as a seeded optional field for AdvancedOpen's purposes just
+// like Role/Context/Constraints/OutputFormat already do - it lives in
+// the same "Optional fields" <details> in index.html, so a seeded
+// example must expand it too, not leave it collapsed.
+func TestHandleIndex_AdvancedOpenWhenExamplesSeeded(t *testing.T) {
+	app := testAppWithInitial(prompt.Inputs{Examples: []string{"a seeded example"}})
+	req := newLocalRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, advancedDetailsOpenTag) {
+		t.Errorf("expected the optional fields to render open when Examples was seeded, got:\n%s", body)
 	}
 }
 

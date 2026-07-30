@@ -45,17 +45,38 @@ const (
 
 	leftPaneFraction = 3 // left pane gets ~1/leftPaneFraction of the width
 
-	numFields       = 5 // goal, context, constraints, role, output-format; must equal len(fieldHeights) below
+	numFields       = 6 // goal, context, constraints, role, output-format, examples; must equal len(fieldHeights) below - NOT all one row each, see fieldHeights
 	targetHeight    = 1 // the "Target: < ... >" line at the top of the left pane
 	minSkillsHeight = 2 // "Skills" title + at least 1 visible list row
+
+	// examplesRows is the fixed height, in rows, of the Examples
+	// field's textarea body - deliberately NOT content-dependent
+	// (unlike, say, letting it grow with the number of lines typed),
+	// so the layout budget stays deterministic and the preview pane
+	// doesn't jump around while the user is mid-edit. Longer content
+	// scrolls inside these 3 rows via the textarea's own viewport
+	// instead of growing them.
+	examplesRows = 3
+
+	// examplesFieldHeight is the Examples field's total rendered
+	// height: one row for its own label line, plus examplesRows for
+	// the textarea body beneath it. It needs its own label line
+	// (rather than sharing one line with its value, like every other
+	// field's "Label: value" row) because a textarea's View() is a
+	// multi-line block, not a single line a label could be prefixed
+	// onto - see viewExamplesField in view.go.
+	examplesFieldHeight = 1 + examplesRows
 )
 
 // fieldHeights lists each editable field's rendered height, in
-// terminal rows, in the same order fieldSpecs (view.go) renders them.
-// Every entry is 1 today - a single-line textinput is always exactly
-// one row - but a future variable-height field (e.g. a multi-line
-// "Examples" textarea) reports more than 1 here instead of the layout
-// math silently assuming every field is one row.
+// terminal rows, in the same order fieldSpecs (view.go) renders the
+// first five, with the sixth (Examples) appended after them - see
+// viewFields. The first five entries are 1: a single-line textinput is
+// always exactly one row. The last is examplesFieldHeight (4): the
+// Examples field is this package's first field taller than one row -
+// a multi-line textarea rendering its own label-plus-body block - which
+// is exactly why this list exists as a sum instead of a bare count in
+// the first place (see totalFieldsHeight below).
 //
 // Deliberately a package var, not derived from fieldSpecs(): fieldSpecs
 // is a method on model, built from live textinput.Model state, but
@@ -69,8 +90,10 @@ const (
 // height into without constructing a whole model - see
 // TestComputeLayout_FieldStackHeightGrowsWithPerFieldHeight in
 // layout_test.go, which exists specifically to prove that seam works
-// ahead of the Examples textarea landing.
-var fieldHeights = []int{1, 1, 1, 1, 1}
+// - originally written ahead of the Examples textarea landing, now
+// exercising the real thing via a synthetic override instead of a
+// hypothetical one.
+var fieldHeights = []int{1, 1, 1, 1, 1, examplesFieldHeight}
 
 // totalFieldsHeight sums fieldHeights: the vertical budget the field
 // stack needs. With every entry above equal to 1 this is numerically

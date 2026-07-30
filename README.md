@@ -184,6 +184,7 @@ The root command generates a prompt; everything else is a subcommand.
 | `--constraints` | `-c` | Constraints the solution must respect. |
 | `--role` | `-r` | Role/persona to open the prompt with. |
 | `--output-format` | `-f` | Desired shape of the response. |
+| `--example` | `-e` | A worked example of the desired output. Repeatable - use the flag once per example; **3-5 is recommended**. |
 | `--copy` | `-y` | Copy the prompt to the clipboard instead of stdout. |
 | `--out` | `-o` | Write the prompt to this file instead of stdout (accepts `~`/`~user`; missing parent directories are created). |
 | `--quick` | `-q` | Never launch the interactive picker, even in a terminal. |
@@ -220,6 +221,19 @@ commas: `-s diagnose verify tdd` only sets `diagnose` as a skill, and
 happens to match a known skill id, promptsmith warns on stderr so the
 mistake doesn't pass silently.
 
+`--example`/`-e` is the opposite of `--skills`: it's **never**
+comma-separated, only repeatable - `-e "one" -e "two"` gives two
+examples, full stop. This is deliberate, not an oversight: worked
+examples routinely contain commas of their own, so comma-splitting them
+the way `--skills` does would mangle real input.
+
+```sh
+promptsmith -t claude-code -s tdd \
+  -e "Input: 3 + 4 * 2 -> Output: 11 (respects operator precedence)" \
+  -e "Input: (1 + 2) * 3 -> Output: 9 (parentheses override precedence)" \
+  "refactor the expression parser to use a proper precedence climber"
+```
+
 `--goal`/`-g` and a positional goal are mutually exclusive - passing
 both is a hard error, not a silent merge, so you always know which one
 won.
@@ -240,10 +254,17 @@ invocation. Without either, the prompt goes to stdout.
 
 Running `promptsmith` from a terminal with no `--skills` (and no
 `--quick`) launches a picker: browse skills by category with a live
-preview of the assembled prompt, edit the goal/role/context/constraints
-inline, then choose to print, copy, or write the result. `--tui` forces
-the picker even when `--skills` was given; `-q`/`--quick` always skips
-it.
+preview of the assembled prompt, edit the
+goal/role/context/constraints/examples inline, then choose to print,
+copy, or write the result. `--tui` forces the picker even when
+`--skills` was given; `-q`/`--quick` always skips it.
+
+Both the terminal picker and the web UI (`--ui`) hold examples in a
+single multi-line field rather than one field per example. Separate
+multiple examples with a line containing only `---` - the same
+delimiter `SKILL.md` frontmatter uses elsewhere in this project. Unlike
+a blank line, `---` survives examples that themselves contain blank
+lines, which multi-line input/output example pairs often do.
 
 ## Custom skills
 

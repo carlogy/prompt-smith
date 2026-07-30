@@ -97,6 +97,13 @@ func (app *application) handlePreview(w http.ResponseWriter, r *http.Request) {
 		Context:      r.FormValue("context"),
 		Constraints:  r.FormValue("constraints"),
 		OutputFormat: r.FormValue("outputFormat"),
+		// r.FormValue, not r.Form["examples"] like skills' multi-value
+		// checkbox handling: the examples textarea is ONE form field
+		// holding every example, "---"-separated (see index.html and
+		// fielddesc.Examples's hint text), so there's exactly one
+		// "examples" key to read - SplitExamples does the dividing
+		// prompt.Inputs.Examples ([]string) actually needs.
+		Examples: prompt.SplitExamples(r.FormValue("examples")),
 	})
 
 	data := previewData{Filename: naming.SuggestFilename(r.FormValue("goal"), time.Now())}

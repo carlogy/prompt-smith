@@ -141,14 +141,14 @@ func TestModel_EndToEnd_TypeGoalScrollPreviewTabBackToSkillsThenConfirm(t *testi
 	tm.Type("fix the flaky checkout test")
 
 	// Tab cycle: goal(1) -> context(2) -> constraints(3) -> role(4) ->
-	// outputFormat(5) -> preview(6): 5 tabs.
-	for i := 0; i < 5; i++ {
+	// outputFormat(5) -> examples(6) -> preview(7): 6 tabs.
+	for i := 0; i < 6; i++ {
 		tm.Send(tea.KeyMsg{Type: tea.KeyTab})
 	}
 	// Preview now focused: Down scrolls it, not a skill cursor.
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 
-	// Two more tabs: preview(6) -> target(7) -> skills(0). focusTarget
+	// Two more tabs: preview(7) -> target(8) -> skills(0). focusTarget
 	// sits between preview and skills in the cycle (see focus.go), so
 	// reaching skills now takes one extra tab versus before that zone
 	// existed.
