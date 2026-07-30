@@ -16,7 +16,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package cli wires the promptsmith command surface: the root "generate"
-// command plus the "list" and "validate" subcommands.
+// command plus the "list", "presets", and "validate" subcommands.
 package cli
 
 import (
@@ -69,6 +69,7 @@ registry of skills and per-target rendering rules.`,
   promptsmith -s diagnose -g "fix the flaky checkout test"  # goal via flag
   promptsmith -s diagnose -c "no new deps" "fix the bug"    # constraints
   promptsmith -s diagnose -y "fix the bug"                  # copy to clipboard
+  promptsmith -p code-review "fix the bug"                  # reuse a saved preset
   promptsmith --tui                                         # interactive picker`,
 		Version: buildVersion(), // enables the --version flag cobra provides automatically
 		Args:    cobra.ArbitraryArgs,
@@ -80,6 +81,7 @@ registry of skills and per-target rendering rules.`,
 	addGenerateFlags(root, reg)
 
 	root.AddCommand(newListCmd(reg))
+	root.AddCommand(newPresetsCmd())
 	root.AddCommand(newValidateCmd(reg))
 	root.AddCommand(newVersionCmd())
 

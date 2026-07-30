@@ -30,6 +30,7 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/spf13/cobra"
 
+	"github.com/carlogy/prompt-smith/internal/preset"
 	"github.com/carlogy/prompt-smith/internal/prompt"
 	"github.com/carlogy/prompt-smith/internal/registry"
 	"github.com/carlogy/prompt-smith/internal/server"
@@ -75,6 +76,7 @@ type generateOptions struct {
 	ui           bool
 	port         int
 	noBrowser    bool
+	preset       string
 }
 
 // addGenerateFlags registers the generate flags on cmd and wires its RunE.
@@ -96,6 +98,7 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 	// shipped exactly that bug once with --skills (see NormalizeSkills's
 	// doc comment); --example doesn't get to repeat it.
 	cmd.Flags().StringArrayVarP(&opts.examples, "example", "e", nil, "a worked example of the desired output (repeatable)")
+	cmd.Flags().StringVarP(&opts.preset, "preset", "p", "", "load prompt defaults from a saved preset (see `promptsmith presets`)")
 	cmd.Flags().BoolVarP(&opts.toClipboard, "copy", "y", false, "copy the prompt to the clipboard instead of stdout")
 	cmd.Flags().StringVarP(&opts.out, "out", "o", "", "write the prompt to this file instead of stdout")
 	cmd.Flags().BoolVarP(&opts.quick, "quick", "q", false, "never launch the interactive picker, even in a terminal")
@@ -109,8 +112,131 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 	}
 }
 
+// presetFieldSpecs states, once, how each Preset field maps onto opts
+// and onto the flag whose explicit use should take precedence over it.
+// Table-driven so the mapping is stated in exactly one place: a
+// reviewer can check all seven flag names in one pass instead of
+// hunting through applyPreset's body, and a mistyped flagName here is
+// what TestApplyPreset_ExplicitFlagBeatsPreset's per-field cases would
+// catch (a bad name makes cmd.Flags().Changed(name) always report
+// false - see pflag's Changed - so the preset would keep clobbering an
+// explicit flag for that field instead of yielding to it).
+//
+// Each apply func also skips a preset field that's empty/nil: a
+// preset.Preset has no way to distinguish "the YAML omitted this key"
+// from "the key was explicitly set to its zero value" (see
+// presetDoc), so treating an omitted field as a no-op is the only
+// reading that doesn't clobber a flag's own default with an empty
+// string - --target's default is "generic" (see addGenerateFlags), so
+// a preset that only sets, say, role would otherwise blank out the
+// target to "" and fail with "unknown target \"\"".
+var presetFieldSpecs = []struct {
+	flagName string
+	apply    func(opts *generateOptions, p *preset.Preset)
+}{
+	{"target", func(opts *generateOptions, p *preset.Preset) {
+		if p.Target != "" {
+			opts.target = p.Target
+		}
+	}},
+	{"skills", func(opts *generateOptions, p *preset.Preset) {
+		if len(p.Skills) > 0 {
+			opts.skills = p.Skills
+		}
+	}},
+	{"role", func(opts *generateOptions, p *preset.Preset) {
+		if p.Role != "" {
+			opts.role = p.Role
+		}
+	}},
+	{"context", func(opts *generateOptions, p *preset.Preset) {
+		if p.Context != "" {
+			opts.context = p.Context
+		}
+	}},
+	{"constraints", func(opts *generateOptions, p *preset.Preset) {
+		if p.Constraints != "" {
+			opts.constraints = p.Constraints
+		}
+	}},
+	// "output-format", NOT the YAML key "output_format": Changed()
+	// looks flags up by their cobra flag name (hyphenated), not by the
+	// preset file's key.
+	{"output-format", func(opts *generateOptions, p *preset.Preset) {
+		if p.OutputFormat != "" {
+			opts.outputFormat = p.OutputFormat
+		}
+	}},
+	// "example", singular: the flag is -e/--example even though both
+	// the preset field and the opts field are plural (Examples/examples).
+	{"example", func(opts *generateOptions, p *preset.Preset) {
+		if len(p.Examples) > 0 {
+			opts.examples = p.Examples
+		}
+	}},
+}
+
+// applyPreset loads the preset named by -p/--preset, if given, and uses
+// it to fill in any generate flag the caller did not explicitly pass.
+//
+// Gated on cmd.Flags().Changed("preset"), not opts.preset != "": that
+// way `--preset ""` still reaches preset.Load (and its name-validation
+// error), rather than being silently treated as "no preset requested".
+//
+// Each field from presetFieldSpecs is applied only if
+// !cmd.Flags().Changed(<its flag>) - never on an empty-value check.
+// --target defaults to "generic" (see addGenerateFlags above), so an
+// empty check can't distinguish "the user never passed --target" from
+// "the user explicitly passed --target generic"; gating on Changed is
+// the only way a preset doesn't wrongly override an explicit
+// --target generic.
+func applyPreset(cmd *cobra.Command, opts *generateOptions) error {
+	if !cmd.Flags().Changed("preset") {
+		return nil
+	}
+
+	p, warnings, err := preset.Load(opts.preset)
+	for _, w := range warnings {
+		fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: "+w)
+	}
+	if err != nil {
+		if errors.Is(err, preset.ErrNotFound) {
+			// ListDir's own warnings matter here too: this is how a
+			// user who created "foo.yml" instead of "foo.yaml" finds
+			// out why their preset isn't in the list.
+			names, listWarnings, _ := preset.ListDir()
+			for _, w := range listWarnings {
+				fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: "+w)
+			}
+			return unknownPresetError(opts.preset, names)
+		}
+		return fmt.Errorf("promptsmith: %w", err)
+	}
+
+	for _, spec := range presetFieldSpecs {
+		if !cmd.Flags().Changed(spec.flagName) {
+			spec.apply(opts, p)
+		}
+	}
+	return nil
+}
+
 func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, args []string) error {
 	if err := validateUIFlags(cmd, opts); err != nil {
+		return err
+	}
+
+	// Resolved immediately after validateUIFlags and, critically,
+	// BEFORE NormalizeSkills below: decideUseTUI, warnStraySkillArgs,
+	// and NormalizeSkills all key off len(opts.skills), and
+	// decideUseTUI in particular treats zero skills as "launch the
+	// interactive picker" (see interactive.go). A preset's skills need
+	// to already be in opts.skills before that count is taken, so that
+	// `promptsmith -p mypreset "goal"` counts exactly as if those
+	// skills had been typed via --skills and goes straight to output -
+	// applied any later, a preset would silently fail to suppress the
+	// picker (or the goal-only stderr note below).
+	if err := applyPreset(cmd, opts); err != nil {
 		return err
 	}
 

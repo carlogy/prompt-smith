@@ -170,6 +170,7 @@ The root command generates a prompt; everything else is a subcommand.
 |---|---|
 | `promptsmith [flags] <goal>` | Generate a prompt (see flags below); `<goal>` may be given positionally or via `-g`/`--goal` - the two are mutually exclusive. |
 | `promptsmith list [-t target]` | List available skills by category, optionally filtered to those supported on a target. |
+| `promptsmith presets` | List saved presets, one name per line on stdout (see [Presets](#presets)). |
 | `promptsmith validate` | Check the loaded registry's structural integrity (duplicate ids, dangling categories/refs). |
 | `promptsmith version` | Print the build version. |
 
@@ -179,6 +180,7 @@ The root command generates a prompt; everything else is a subcommand.
 |---|---|---|
 | `--target` | `-t` | Target harness: `generic`\|`opencode`\|`claude-code`\|`gemini-cli`\|`codex` (default `generic`). |
 | `--skills` | `-s` | Skills to include. Comma-separated with **no spaces**, or repeat the flag. |
+| `--preset` | `-p` | Load defaults (target/skills/role/context/constraints/output-format/examples) from a saved preset (see [Presets](#presets)). An explicitly-passed flag always wins over the preset's value for that field. |
 | `--goal` | `-g` | The goal/task. An alternative to passing the goal as a positional argument; the two are mutually exclusive. |
 | `--context` | `-x` | Background/context for the goal. |
 | `--constraints` | `-c` | Constraints the solution must respect. |
@@ -323,6 +325,135 @@ via `go install -tags empty ...` (see [Install](#install)), or build it
 yourself with `make build-empty` / `make install-empty`. `install-empty`
 installs to the same `$GOBIN/promptsmith` path as the default build, so
 installing one replaces the other.
+
+## Presets
+
+A preset is a saved bundle of prompt-generation defaults - target,
+skills, role, context, constraints, output format, examples - loaded
+with `-p`/`--preset` so a recurring invocation doesn't have to be
+retyped (or copy-pasted from shell history) every time. Directory
+resolution mirrors [Custom skills](#custom-skills) exactly: it checks,
+in order, `$PROMPTSMITH_PRESETS_DIR` (wins outright if set), then
+`$XDG_CONFIG_HOME/promptsmith/presets`, falling back to
+`~/.config/promptsmith/presets`. As with the skills directory, it's not
+an error for this directory not to exist - that's the common case.
+
+Unlike a skill, a preset is a single flat file, not a directory:
+`<name>.yaml` sitting directly in the presets directory (no
+subdirectories). The preset name is the filename stem, so
+`web-review.yaml` is loaded as `-p web-review`. The `.yaml` extension is
+required; a file with any other extension (e.g. a typo'd `.yml`) is
+**not** silently skipped - it's ignored with a warning on stderr,
+because a preset file is the whole unit of meaning here and a stray
+extension is almost certainly a mistake the author would want to know
+about.
+
+All keys are optional:
+
+| Key | Type | Maps to |
+|---|---|---|
+| `target` | string | `-t`/`--target` |
+| `skills` | list of strings | `-s`/`--skills` |
+| `role` | string | `-r`/`--role` |
+| `context` | string | `-x`/`--context` |
+| `constraints` | string | `-c`/`--constraints` |
+| `output_format` | string | `-f`/`--output-format` (note the underscore in the YAML key against the hyphen in the flag) |
+| `examples` | list of strings | `-e`/`--example` |
+
+There is deliberately no `goal` key. A preset describes *how* to ask,
+not *what* to ask - the goal is the one thing that's different on every
+invocation, so it stays a per-run argument while everything reusable
+around it lives in the preset. Writing `goal:` into a preset file
+doesn't silently do nothing, either: it produces its own dedicated
+warning on stderr saying exactly that, rather than the generic
+unknown-key message below.
+
+A preset only ever supplies *defaults*: an explicitly-passed flag always
+wins. That's decided by whether the flag was **passed**, not by whether
+its value happens to be empty - so `--target generic` typed on the
+command line beats a preset's `target: opencode`, even though `generic`
+is also `--target`'s own default. The distinction matters because a
+plain "is it the default?" check couldn't tell "you didn't pass
+`--target`" apart from "you passed `--target generic`" - both look like
+`generic` - and a preset would then wrongly clobber the second case. A
+key the preset file simply omits leaves that flag's own default alone.
+
+Because a preset's `skills` land in exactly the place `--skills` would,
+`promptsmith -p mypreset "fix the bug"` generates straight to stdout
+instead of opening the [interactive picker](#interactive-picker) - the
+picker only auto-launches when no skills were selected by any means, and
+a preset's skills count the same as typed ones for that check.
+
+Because a preset's fields are resolved into the same options that seed
+both the interactive picker and the local web UI, they arrive
+pre-filled there too, exactly as if passed as flags. So `--tui` with a
+preset opens the picker with `role`, `constraints`, `output_format`,
+and the rest already set, leaving just the goal to type - useful
+because `goal` is the one thing a preset can't supply.
+
+```sh
+# Picker, pre-filled from the preset - just type the goal:
+promptsmith -p web-review --tui
+
+# Same, in the browser:
+promptsmith -p web-review --ui
+```
+
+One bad line never discards an otherwise-usable preset. All of the
+following warn on stderr and move on rather than failing the load:
+
+- an unrecognized key,
+- a `goal:` key (see above),
+- a value of the wrong YAML type - e.g. `examples: "just one"` written
+  as a plain string instead of a list. Only that one field is dropped;
+  every other field in the file still applies.
+
+Only a genuine YAML *syntax* error is fatal, since at that point nothing
+usable can be recovered from the file at all.
+
+Passing an unknown preset name is a hard error naming what *is*
+available, so a typo doesn't need a second `promptsmith presets` round
+trip to diagnose:
+
+```
+promptsmith: unknown preset "web-reveiw"; available: standup, web-review (in /home/u/.config/promptsmith/presets)
+```
+
+If no presets exist yet, the error points at how to create one instead
+of listing an empty set:
+
+```
+promptsmith: unknown preset "mypreset"; no presets available. Create one via $PROMPTSMITH_PRESETS_DIR, or drop a <name>.yaml file into $XDG_CONFIG_HOME/promptsmith/presets (default ~/.config/promptsmith/presets). See the "Presets" section of README.md.
+```
+
+`promptsmith presets` lists what's saved - one name per line on stdout
+and nothing else, so it composes cleanly with other tools
+(`promptsmith presets | fzf`, shell completion, etc.). The resolved
+presets directory is printed to stderr as a hint, keeping stdout exactly
+the list of names.
+
+A worked example - save this as
+`~/.config/promptsmith/presets/web-review.yaml`:
+
+```yaml
+target: claude-code
+skills:
+  - diagnose
+  - verify
+role: You are a senior code reviewer focused on correctness and security.
+output_format: A short summary followed by a bulleted list of findings.
+```
+
+```sh
+promptsmith -p web-review "review the changes in this PR"
+```
+
+This generates exactly as if `-t claude-code -s diagnose,verify -r
+"You are a senior code reviewer focused on correctness and security."
+-f "A short summary followed by a bulleted list of findings."` had been
+typed alongside the goal - and any of those four flags passed
+explicitly on top would override the matching preset value, field by
+field.
 
 ## Development
 
