@@ -64,4 +64,22 @@ var (
 	// coincidence, not by construction.
 	openTagStyle  = lipgloss.NewStyle().Bold(true).Foreground(activeColor)
 	closeTagStyle = lipgloss.NewStyle().Faint(true)
+
+	// helpKeyStyle/helpDescStyle/helpSeparatorStyle replace
+	// bubbles/help's own defaults (help.New(), bubbles@v1.0.0/help/
+	// help.go) on the help.Model this package constructs (see
+	// newModel). That's NOT working around a non-adaptive default -
+	// help.New()'s AdaptiveColor{Light: "#909090", Dark: "#626262"}
+	// (etc.) already IS light/dark aware, same mechanism as
+	// activeColor above. The reason to override it anyway is
+	// activeColor's other half: this TUI deliberately restricts
+	// itself to ANSI-16 codes everywhere, never truecolor hex, so it
+	// keeps degrading gracefully on terminals with a limited palette
+	// and stays visually consistent with the rest of the footer
+	// (footerStyle, same Faint(true), no color at all) instead of
+	// introducing the one truecolor-hex style in an otherwise ANSI-16
+	// UI.
+	helpKeyStyle       = lipgloss.NewStyle().Faint(true)
+	helpDescStyle      = lipgloss.NewStyle().Faint(true)
+	helpSeparatorStyle = lipgloss.NewStyle().Faint(true)
 )

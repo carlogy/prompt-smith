@@ -217,11 +217,16 @@ func TestView_FieldsBlockHeightMatchesTotalFieldsHeight(t *testing.T) {
 	}
 }
 
-func TestFooterHelpFor_ExamplesMentionsNewlineAndTabToSubmit(t *testing.T) {
-	got := footerHelpFor(focusExamples)
+func TestFooter_ExamplesMentionsNewlineAndTabToSubmit(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+	focused, _ := m.changeFocus(focusExamples)
+	m2 := focused.(model)
+
+	got := strings.ToLower(stripANSI(m2.viewFooter()))
 	for _, want := range []string{"newline", "tab", "submit"} {
-		if !strings.Contains(strings.ToLower(got), want) {
-			t.Errorf("footerHelpFor(focusExamples) = %q, want it to mention %q", got, want)
+		if !strings.Contains(got, want) {
+			t.Errorf("viewFooter() with focusExamples = %q, want it to mention %q", got, want)
 		}
 	}
 }

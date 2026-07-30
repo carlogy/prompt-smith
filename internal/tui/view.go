@@ -48,43 +48,85 @@ var fieldDescriptorKey = map[focusZone]string{
 	focusOutputFormat: fielddesc.OutputFormat,
 }
 
-// footerHelpFor returns the keybinding hint for the currently-focused
-// zone: what up/down (and other zone-specific keys) actually do right
-// now, since that's context-dependent - plus the always-available
-// confirm/cancel keys where they apply. A text field's hint leads with
-// its own descriptor sentence rather than a generic "type to edit":
-// every field's editing mechanics are identical (hence the shared
-// "tab next / esc unfocus" suffix), but what the field is *for* isn't,
-// and that's the more useful thing to show here. Falls back to the
-// generic hint for any zone with no mapped descriptor (defensive; not
-// expected to trigger for the five fields covered by
-// fieldDescriptorKey).
-func footerHelpFor(zone focusZone) string {
+// footerDescriptorFor returns the descriptor-sentence half of the
+// footer for the currently-focused zone - what the field is *for*,
+// not how to work it (that half comes from bubbles/help via
+// keyMap.ShortHelp, keys.go - the two are rendered separately and
+// concatenated by viewFooter, never nested into one Style.Render).
+// focusSkills/focusPreview return "": neither is a "field" with
+// something to describe: their whole footer row is keybinds, exactly
+// like before this package adopted bubbles/help. Falls back to a
+// generic descriptor for any mapped field whose fielddesc sentence
+// somehow comes back empty (defensive; fielddesc's own completeness
+// test means this isn't expected to trigger for the fields covered by
+// fieldDescriptorKey today).
+func footerDescriptorFor(zone focusZone) string {
 	switch zone {
-	case focusSkills:
-		return "\u2191/\u2193 move \u00b7 space select \u00b7 tab next \u00b7 enter=stdout \u00b7 c=copy \u00b7 w=write \u00b7 esc=cancel"
-	case focusPreview:
-		return "\u2191/\u2193 pgup/pgdn scroll \u00b7 tab next \u00b7 enter=stdout \u00b7 c=copy \u00b7 w=write \u00b7 esc=cancel"
 	case focusTarget:
-		return fielddesc.Sentence(fielddesc.Target) + "  \u00b7  \u2190/\u2192 change \u00b7 tab next \u00b7 esc unfocus"
+		return fielddesc.Sentence(fielddesc.Target)
 	case focusExamples:
-		// Deliberately NOT the shared "tab next \u00b7 esc unfocus"
-		// suffix every other text field gets: Enter inserts a newline
-		// here instead of doing nothing special (see
-		// updateExamplesField), so a user tabbing in expecting Enter to
-		// behave like it does in every other field would otherwise have
-		// no way to discover that submitting requires tabbing back out
-		// first. Spelling that out here IS the fix for that -
-		// don't collapse this back into the generic default case below.
-		return fielddesc.Sentence(fielddesc.Examples) + "  \u00b7  enter=newline \u00b7 tab next (then enter to submit) \u00b7 esc unfocus"
-	default: // a text field
+		return fielddesc.Sentence(fielddesc.Examples)
+	default:
 		if key, ok := fieldDescriptorKey[zone]; ok {
 			if sentence := fielddesc.Sentence(key); sentence != "" {
-				return sentence + "  \u00b7  tab next \u00b7 esc unfocus"
+				return sentence
 			}
+			return "type to edit"
 		}
-		return "type to edit \u00b7 tab next \u00b7 esc unfocus"
+		return "" // focusSkills/focusPreview: keybinds alone carry the row
 	}
+}
+
+// viewFooter renders the one-row footer beneath both panes: the
+// focused zone's descriptor sentence (footerDescriptorFor), if it has
+// one, followed by bubbles/help's rendering of keyMap.ShortHelp() for
+// that same zone. The two pieces are rendered SEPARATELY and
+// concatenated by plain string "+" rather than one Style.Render call
+// wrapping both - help.View already emits its own ANSI escapes (its
+// styles are wired up in newModel, from theme.go), and nesting a
+// second Style.Render around that output would have footerStyle's
+// SGR codes get reset partway through by help's own, mangling the
+// line's styling.
+func (m model) viewFooter() string {
+	desc := footerDescriptorFor(m.focus)
+
+	// help.Model.Width caps ShortHelpView's rendered width so it
+	// ellipsizes instead of wrapping onto a second physical row (help's
+	// own doc comment; bubbles/help has no soft-wrap of its own) - it
+	// does nothing width-aware by default (Width's zero value means
+	// "unbounded"). Budget it as the terminal width minus whatever the
+	// descriptor above already consumed (plus the separator between
+	// them). termWidth is normalized exactly like computeLayout
+	// normalizes it internally (defaultTermWidth when <=0, i.e. before
+	// the first WindowSizeMsg), so this stays in lockstep with the
+	// same effective width the rest of the layout was sized against -
+	// not l directly, since l's content widths already have
+	// paneHOverhead and the pane-split subtracted out, neither of
+	// which applies to the borderless footer row.
+	termWidth := m.termWidth
+	if termWidth <= 0 {
+		termWidth = defaultTermWidth
+	}
+	sep := ""
+	if desc != "" {
+		sep = "  "
+	}
+	m.help.Width = termWidth - lipgloss.Width(desc) - lipgloss.Width(sep)
+	if m.help.Width < 0 {
+		m.help.Width = 0
+	}
+
+	return footerStyle.Render(desc) + sep + m.help.View(m.keys)
+}
+
+// viewHelpOverlay renders the full-screen "?" help takeover
+// (updatePicker toggles m.help.ShowAll; updateHelpOverlay handles
+// dismissing it) - mirrors viewFilenamePrompt's shape: a plain,
+// layout-independent screen that replaces the whole split view rather
+// than living inside it, listing every binding via
+// keyMap.FullHelp() instead of just the focused zone's ShortHelp().
+func (m model) viewHelpOverlay() string {
+	return "Help\n\n" + m.help.FullHelpView(m.keys.FullHelp()) + "\n\n(press ? or esc to close)"
 }
 
 // fieldLabelWidth is padded to the longest label ("Constraints") so
@@ -98,6 +140,9 @@ func (m model) View() string {
 	if m.enteringFilename {
 		return m.viewFilenamePrompt()
 	}
+	if m.help.ShowAll {
+		return m.viewHelpOverlay()
+	}
 
 	l := computeLayout(m.termWidth, m.termHeight)
 
@@ -106,7 +151,7 @@ func (m model) View() string {
 	// puts focus in the right pane instead.
 	leftPane, rightPane := renderPanes(left, m.viewPreview(), m.focus != focusPreview)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
-	return lipgloss.JoinVertical(lipgloss.Left, body, footerStyle.Render(footerHelpFor(m.focus)))
+	return lipgloss.JoinVertical(lipgloss.Left, body, m.viewFooter())
 }
 
 // renderPanes wraps left and right in the bordered pane style, first

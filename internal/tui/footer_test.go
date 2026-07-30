@@ -22,12 +22,34 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/carlogy/prompt-smith/internal/fielddesc"
 	"github.com/carlogy/prompt-smith/internal/prompt"
 )
 
-func TestFooterHelpFor_ReflectsFocusedZone(t *testing.T) {
+// footerFor renders the one-row footer for zone in isolation, the way
+// TestFooterHelpFor_ReflectsFocusedZone (pre-bubbles/help) exercised
+// footerHelpFor directly - viewFooter needs a model to read m.focus/
+// m.keys/m.help from, so this builds one and focuses it rather than
+// calling any single pure function, which is the shape adopting
+// bubbles/help left behind (the descriptor half and the keybind half
+// now come from two different places - footerDescriptorFor and
+// keyMap.ShortHelp via m.help.View - see view.go).
+func footerFor(t *testing.T, zone focusZone) string {
+	t.Helper()
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+	// Wide enough that no zone's descriptor+keybind row needs
+	// ellipsizing - these tests are about WHAT the footer says, not
+	// how it degrades under width pressure (that's
+	// TestFooter_StaysOneRowAtNarrowWidth's job).
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	focused, _ := updated.(model).changeFocus(zone)
+	return stripANSI(focused.(model).viewFooter())
+}
+
+func TestFooter_ReflectsFocusedZone(t *testing.T) {
 	cases := []struct {
 		name    string
 		zone    focusZone
@@ -37,56 +59,56 @@ func TestFooterHelpFor_ReflectsFocusedZone(t *testing.T) {
 		{
 			name:    "skills",
 			zone:    focusSkills,
-			want:    []string{"move", "select", "enter=stdout"},
+			want:    []string{"move", "select", "ok"},
 			notWant: []string{"type to edit", "unfocus"},
 		},
 		{
 			name:    "a text field (goal)",
 			zone:    focusGoal,
 			want:    []string{"What you want the model to do.", "esc"},
-			notWant: []string{"space select", "enter=stdout", "pgup/pgdn"},
+			notWant: []string{"select", "ok", "pgup"},
 		},
 		{
 			name:    "preview",
 			zone:    focusPreview,
-			want:    []string{"scroll", "enter=stdout"},
-			notWant: []string{"space select", "type to edit"},
+			want:    []string{"scroll", "ok"},
+			notWant: []string{"select", "type to edit"},
 		},
 		{
 			name:    "target",
 			zone:    focusTarget,
 			want:    []string{fielddesc.Sentence(fielddesc.Target), "change", "esc"},
-			notWant: []string{"space select", "enter=stdout", "pgup/pgdn"},
+			notWant: []string{"select", "ok", "pgup"},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := footerHelpFor(tc.zone)
+			got := footerFor(t, tc.zone)
 			for _, want := range tc.want {
 				if !strings.Contains(got, want) {
-					t.Errorf("footerHelpFor(%v) missing %q, got: %q", tc.zone, want, got)
+					t.Errorf("footer for %v missing %q, got: %q", tc.zone, want, got)
 				}
 			}
 			for _, notWant := range tc.notWant {
 				if strings.Contains(got, notWant) {
-					t.Errorf("footerHelpFor(%v) should NOT contain %q, got: %q", tc.zone, notWant, got)
+					t.Errorf("footer for %v should NOT contain %q, got: %q", tc.zone, notWant, got)
 				}
 			}
 		})
 	}
 }
 
-// TestFooterHelpFor_TextFieldsShareKeybindsButShowTheirOwnDescriptor
-// replaces the old "every field gets the same hint" assumption: that
-// was true when the hint was purely mechanical ("type to edit"), but
-// since each field now leads with its own fielddesc sentence (Commit
-// 7), sameness there would be a bug, not a feature. What must still
-// hold - because the five fields *do* share identical editing
-// mechanics - is the keybind suffix.
-func TestFooterHelpFor_TextFieldsShareKeybindsButShowTheirOwnDescriptor(t *testing.T) {
-	const keybindSuffix = "tab next \u00b7 esc unfocus"
-
+// TestFooter_TextFieldsShareKeybindsButShowTheirOwnDescriptor replaces
+// the old "every field gets the same hint" assumption: that was true
+// when the hint was purely mechanical ("type to edit"), but since each
+// field now leads with its own fielddesc sentence (Commit 7), sameness
+// there would be a bug, not a feature. What must still hold - because
+// the five fields *do* share identical editing mechanics - is the
+// keybind half (now keyMap.ShortHelp's default case, rendered via
+// bubbles/help rather than a hand-built string, hence checking "tab"
+// and "esc" rather than one exact literal suffix).
+func TestFooter_TextFieldsShareKeybindsButShowTheirOwnDescriptor(t *testing.T) {
 	fields := []struct {
 		zone focusZone
 		key  string
@@ -100,16 +122,18 @@ func TestFooterHelpFor_TextFieldsShareKeybindsButShowTheirOwnDescriptor(t *testi
 
 	seen := make(map[string]bool, len(fields))
 	for _, f := range fields {
-		got := footerHelpFor(f.zone)
-		if !strings.Contains(got, keybindSuffix) {
-			t.Errorf("footerHelpFor(%v) = %q, want it to end with the shared keybind suffix %q", f.zone, got, keybindSuffix)
+		got := footerFor(t, f.zone)
+		for _, wantKeybind := range []string{"tab", "esc"} {
+			if !strings.Contains(got, wantKeybind) {
+				t.Errorf("footer for %v = %q, want it to mention %q", f.zone, got, wantKeybind)
+			}
 		}
 		wantSentence := fielddesc.Sentence(f.key)
 		if !strings.Contains(got, wantSentence) {
-			t.Errorf("footerHelpFor(%v) = %q, want it to lead with %q", f.zone, got, wantSentence)
+			t.Errorf("footer for %v = %q, want it to lead with %q", f.zone, got, wantSentence)
 		}
 		if seen[got] {
-			t.Errorf("footerHelpFor(%v) = %q, want a distinct descriptor per field, got a duplicate", f.zone, got)
+			t.Errorf("footer for %v = %q, want a distinct descriptor per field, got a duplicate", f.zone, got)
 		}
 		seen[got] = true
 	}
@@ -122,14 +146,35 @@ func TestView_FooterChangesWithFocus(t *testing.T) {
 	m2 := updated.(model) // focus=skills (goal already non-empty)
 
 	got1 := stripANSI(m2.View())
-	if !strings.Contains(got1, "space select") {
-		t.Errorf("expected the skills-focused footer to mention space select, got:\n%s", got1)
+	if !strings.Contains(got1, "select") {
+		t.Errorf("expected the skills-focused footer to mention select, got:\n%s", got1)
 	}
 
 	u, _ := m2.Update(tea.KeyMsg{Type: tea.KeyTab}) // -> goal field
 	m3 := u.(model)
 	got2 := stripANSI(m3.View())
-	if strings.Contains(got2, "space select") {
-		t.Errorf("expected the field-focused footer NOT to mention space select, got:\n%s", got2)
+	if strings.Contains(got2, "select") {
+		t.Errorf("expected the field-focused footer NOT to mention select, got:\n%s", got2)
+	}
+}
+
+// TestFooter_StaysOneRowAtNarrowWidth is the regression guard for the
+// nested-render/unbounded-help.Width hazard viewFooter's own doc
+// comment warns about: without m.help.Width set, bubbles/help doesn't
+// ellipsize its short help, so a narrow terminal wraps the keybind
+// half onto a second physical line, silently breaking computeLayout's
+// one-row-footer assumption (footerHeight=1, layout.go). 40 columns is
+// narrow enough that the skills zone's full keybind list ("↑/↓ move ·
+// space select · tab next field · enter confirm · c copy · w write ·
+// esc cancel") could not otherwise fit on one line.
+func TestFooter_StaysOneRowAtNarrowWidth(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	m2 := updated.(model) // focus=skills: the longest keybind list
+
+	footer := m2.viewFooter()
+	if h := lipgloss.Height(footer); h != 1 {
+		t.Errorf("viewFooter() height at width 40 = %d, want exactly 1 row; got: %q", h, stripANSI(footer))
 	}
 }

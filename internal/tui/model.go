@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -83,6 +85,17 @@ type model struct {
 	enteringFilename bool
 	filenameInput    textinput.Model
 
+	// keys/help back the footer and the "?" overlay (keys.go, view.go).
+	// keys.zone is kept in sync with focus by changeFocus - the one
+	// place focus ever changes - so help.View(m.keys) always describes
+	// whatever zone is actually focused. help.ShowAll doubles as the
+	// overlay's own open/closed flag (see viewHelpOverlay/
+	// updateHelpOverlay) rather than adding a separate bool: that's
+	// literally what the field is for, and bubbles/help already
+	// switches its own View() behavior on it.
+	keys keyMap
+	help help.Model
+
 	result Result
 }
 
@@ -134,6 +147,20 @@ func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 	examplesInput.SetHeight(examplesRows)
 	examplesInput.SetValue(prompt.JoinExamples(initial.Examples))
 
+	// help.Model's Width is set per-render in viewFooter, not here -
+	// it depends on the focused zone's descriptor sentence length,
+	// which changes independently of any resize. Its Styles ARE fixed
+	// up front, matching the rest of this package's styling living in
+	// theme.go rather than scattered per-callsite.
+	h := help.New()
+	h.Styles.ShortKey = helpKeyStyle
+	h.Styles.ShortDesc = helpDescStyle
+	h.Styles.ShortSeparator = helpSeparatorStyle
+	h.Styles.Ellipsis = helpSeparatorStyle
+	h.Styles.FullKey = helpKeyStyle
+	h.Styles.FullDesc = helpDescStyle
+	h.Styles.FullSeparator = helpSeparatorStyle
+
 	m := model{
 		reg:               reg,
 		target:            initial.Target,
@@ -152,6 +179,8 @@ func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 		examples:          prompt.JoinExamples(initial.Examples),
 		examplesInput:     examplesInput,
 		previewVP:         viewport.New(l.rightContentWidth-scrollbarWidth, l.contentHeight-1),
+		keys:              newKeyMap(),
+		help:              h,
 	}
 	// An empty goal (bare `promptsmith` with no goal argument) starts
 	// with the goal field focused so there's an immediate, obvious next
@@ -294,10 +323,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.enteringFilename {
 			return m.updateFilenameInput(msg)
 		}
-		switch msg.Type {
-		case tea.KeyTab:
+		if m.help.ShowAll {
+			return m.updateHelpOverlay(msg)
+		}
+		switch {
+		case key.Matches(msg, m.keys.Tab):
 			return m.changeFocus(nextFocus(m.focus))
-		case tea.KeyShiftTab:
+		case key.Matches(msg, m.keys.ShiftTab):
 			return m.changeFocus(prevFocus(m.focus))
 		}
 		switch m.focus {
@@ -353,6 +385,7 @@ func (m model) changeFocus(to focusZone) (tea.Model, tea.Cmd) {
 	m.outputFormatInput.Blur()
 	m.examplesInput.Blur()
 	m.focus = to
+	m.keys.zone = to // keeps help.View(m.keys) describing whatever zone is actually focused
 
 	var cmd tea.Cmd
 	switch to {
@@ -377,7 +410,7 @@ func (m model) changeFocus(to focusZone) (tea.Model, tea.Cmd) {
 // Esc blurs back to the skill list rather than being passed to the
 // field (which would do nothing) or canceling the whole TUI.
 func (m model) updateGoalField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
+	if key.Matches(msg, m.keys.Esc) {
 		return m.changeFocus(focusSkills)
 	}
 	cmd := m.updateTextField(msg, &m.goalInput, &m.goal)
@@ -386,7 +419,7 @@ func (m model) updateGoalField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // updateContextField mirrors updateGoalField for the context field.
 func (m model) updateContextField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
+	if key.Matches(msg, m.keys.Esc) {
 		return m.changeFocus(focusSkills)
 	}
 	cmd := m.updateTextField(msg, &m.contextInput, &m.context)
@@ -395,7 +428,7 @@ func (m model) updateContextField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // updateConstraintsField mirrors updateGoalField for the constraints field.
 func (m model) updateConstraintsField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
+	if key.Matches(msg, m.keys.Esc) {
 		return m.changeFocus(focusSkills)
 	}
 	cmd := m.updateTextField(msg, &m.constraintsInput, &m.constraints)
@@ -404,7 +437,7 @@ func (m model) updateConstraintsField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // updateRoleField mirrors updateGoalField for the role field.
 func (m model) updateRoleField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
+	if key.Matches(msg, m.keys.Esc) {
 		return m.changeFocus(focusSkills)
 	}
 	cmd := m.updateTextField(msg, &m.roleInput, &m.role)
@@ -413,7 +446,7 @@ func (m model) updateRoleField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // updateOutputFormatField mirrors updateGoalField for the output-format field.
 func (m model) updateOutputFormatField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
+	if key.Matches(msg, m.keys.Esc) {
 		return m.changeFocus(focusSkills)
 	}
 	cmd := m.updateTextField(msg, &m.outputFormatInput, &m.outputFormat)
@@ -436,7 +469,7 @@ func (m model) updateOutputFormatField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // by intercepting Enter to quit - that would silently break the one
 // thing this field exists for.
 func (m model) updateExamplesField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
+	if key.Matches(msg, m.keys.Esc) {
 		return m.changeFocus(focusSkills)
 	}
 	var cmd tea.Cmd
@@ -456,10 +489,10 @@ func (m model) updateExamplesField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // resets the cursor to the first selectable item and recomputes the
 // preview.
 func (m model) updateTargetField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
+	switch {
+	case key.Matches(msg, m.keys.Esc):
 		return m.changeFocus(focusSkills)
-	case tea.KeyLeft, tea.KeyRight:
+	case key.Matches(msg, m.keys.Left, m.keys.Right):
 		ids := sortedTargetIDs(m.reg)
 		if len(ids) == 0 {
 			return m, nil
@@ -471,7 +504,7 @@ func (m model) updateTargetField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		if msg.Type == tea.KeyLeft {
+		if key.Matches(msg, m.keys.Left) {
 			cur = (cur - 1 + len(ids)) % len(ids)
 		} else {
 			cur = (cur + 1) % len(ids)
@@ -500,24 +533,24 @@ func (m *model) updateTextField(msg tea.KeyMsg, input *textinput.Model, target *
 
 // updatePicker handles keys while the skill list has focus.
 func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyUp:
+	switch {
+	case key.Matches(msg, m.keys.Up):
 		if m.focus == focusPreview {
 			m.previewVP.ScrollUp(arrowScrollLines)
 		} else {
 			m.cursor = prevSelectable(m.items, m.cursor)
 		}
-	case tea.KeyDown:
+	case key.Matches(msg, m.keys.Down):
 		if m.focus == focusPreview {
 			m.previewVP.ScrollDown(arrowScrollLines)
 		} else {
 			m.cursor = nextSelectable(m.items, m.cursor)
 		}
-	case tea.KeyPgUp:
+	case key.Matches(msg, m.keys.PgUp):
 		m.previewVP.PageUp()
-	case tea.KeyPgDown:
+	case key.Matches(msg, m.keys.PgDown):
 		m.previewVP.PageDown()
-	case tea.KeySpace:
+	case key.Matches(msg, m.keys.Space):
 		if m.focus == focusSkills && !m.items[m.cursor].isHeader {
 			// Update has a value receiver, but m.items is a slice:
 			// copying the struct does NOT copy the backing array, so
@@ -529,16 +562,16 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.items = items
 			m.recomputePreview()
 		}
-	case tea.KeyEnter:
+	case key.Matches(msg, m.keys.Enter):
 		if m.goalIsEmpty() {
 			return m, nil
 		}
 		m.result = Result{Inputs: m.currentInputs(), Action: ActionStdout}
 		return m, tea.Quit
-	case tea.KeyEsc, tea.KeyCtrlC:
+	case key.Matches(msg, m.keys.Esc, m.keys.CtrlC):
 		m.result = Result{Action: ActionCancel}
 		return m, tea.Quit
-	case tea.KeyRunes:
+	case msg.Type == tea.KeyRunes:
 		switch string(msg.Runes) {
 		case "c":
 			if m.goalIsEmpty() {
@@ -554,6 +587,14 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.filenameInput = textinput.New()
 			m.filenameInput.SetValue(naming.SuggestFilename(m.goal, time.Now()))
 			m.filenameInput.Focus()
+		case "?":
+			// Only reachable here (updatePicker), which - per model's
+			// Update switch above - is only ever called with
+			// focus==focusSkills or focus==focusPreview: every other
+			// zone's case in that switch returns before falling
+			// through to this call. That's what keeps "?" from
+			// swallowing a literal "?" typed into a text field.
+			m.help.ShowAll = !m.help.ShowAll
 		}
 	}
 	return m, nil
@@ -562,15 +603,15 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // updateFilenameInput handles keys while the write-to-file filename
 // input has focus (opened by "w" in updatePicker).
 func (m model) updateFilenameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEnter:
+	switch {
+	case key.Matches(msg, m.keys.Enter):
 		m.result = Result{
 			Inputs:    m.currentInputs(),
 			Action:    ActionWrite,
 			WritePath: m.filenameInput.Value(),
 		}
 		return m, tea.Quit
-	case tea.KeyEsc:
+	case key.Matches(msg, m.keys.Esc):
 		// Abandon the write, return focus to the picker - not a full
 		// cancel of the whole TUI.
 		m.enteringFilename = false
@@ -580,6 +621,25 @@ func (m model) updateFilenameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.filenameInput, cmd = m.filenameInput.Update(msg)
 	return m, cmd
+}
+
+// updateHelpOverlay handles keys while the full-screen "?" help
+// overlay is up (opened by "?" in updatePicker's tea.KeyRunes branch -
+// see the comment there for why "?" can't be a key.Matches binding).
+// Mirrors updateFilenameInput's shape: intercept everything while this
+// mode is active, dismiss on either its own toggle key or Esc, ignore
+// every other key rather than letting it leak through to whatever zone
+// was focused underneath.
+func (m model) updateHelpOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if key.Matches(msg, m.keys.Esc) {
+		m.help.ShowAll = false
+		return m, nil
+	}
+	if msg.Type == tea.KeyRunes && string(msg.Runes) == "?" {
+		m.help.ShowAll = false
+		return m, nil
+	}
+	return m, nil
 }
 
 // handleLeftClick maps a click to a skill row (via the same geometry the
