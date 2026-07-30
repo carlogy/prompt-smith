@@ -32,12 +32,13 @@ var isInteractive = func() bool {
 }
 
 // decideUseTUI applies the interactive-picker gate: launch the TUI when
-// running interactively and not explicitly skipped, either because no
-// skills were given or the user forced it with --tui (which pre-selects
-// whatever --skills already supplied). --quick and --tui together, or
-// --tui outside an interactive terminal, are user errors reported
-// eagerly rather than silently falling back to a different mode.
-func decideUseTUI(interactive, quick, forceTUI bool, numSkills int) (bool, error) {
+// running interactively and not explicitly skipped, for any of three
+// reasons - no skills were given, no goal was given, or the user
+// forced it with --tui (which pre-selects whatever --skills already
+// supplied). --quick and --tui together, or --tui outside an
+// interactive terminal, are user errors reported eagerly rather than
+// silently falling back to a different mode.
+func decideUseTUI(interactive, quick, forceTUI bool, numSkills int, goalEmpty bool) (bool, error) {
 	if quick && forceTUI {
 		return false, errors.New("promptsmith: --tui and --quick are mutually exclusive")
 	}
@@ -47,5 +48,5 @@ func decideUseTUI(interactive, quick, forceTUI bool, numSkills int) (bool, error
 	if !interactive || quick {
 		return false, nil
 	}
-	return forceTUI || numSkills == 0, nil
+	return forceTUI || numSkills == 0 || goalEmpty, nil
 }

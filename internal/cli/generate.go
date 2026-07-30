@@ -274,7 +274,7 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 		return runUI(cmd, reg, opts, goal)
 	}
 
-	useTUI, err := decideUseTUI(isInteractive(), opts.quick, opts.tui, len(opts.skills))
+	useTUI, err := decideUseTUI(isInteractive(), opts.quick, opts.tui, len(opts.skills), goal == "")
 	if err != nil {
 		return err
 	}
