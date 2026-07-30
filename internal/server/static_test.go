@@ -58,6 +58,31 @@ func TestStaticHandler_ServesHTMX(t *testing.T) {
 // hostile value real Windows registries commonly report for ".js"
 // (see the comment in newStaticHandler) before building the app, so
 // this fails without the override and passes with it, on any OS.
+func TestStaticHandler_ServesIdiomorph(t *testing.T) {
+	app := testApp()
+	req := newLocalRequest(http.MethodGet, "/static/idiomorph-ext.min.js", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
+		t.Errorf("Content-Type = %q, want text/javascript...", ct)
+	}
+	// A real check that the vendored file is intact, not just that
+	// *some* 200 came back: idiomorph's own minified output names
+	// itself in its top-level var declaration.
+	body := rec.Body.String()
+	if !strings.Contains(strings.ToLower(body), "idiomorph") {
+		t.Errorf("served body doesn't look like idiomorph-ext.min.js (missing \"idiomorph\"), len=%d", len(body))
+	}
+	if rec.Body.Len() < 5000 {
+		t.Errorf("served body suspiciously small (%d bytes) for idiomorph-ext.min.js", rec.Body.Len())
+	}
+}
+
 func TestStaticHandler_ForcesJavaScriptMIME(t *testing.T) {
 	if err := mime.AddExtensionType(".js", "application/javascript"); err != nil {
 		t.Fatalf("seeding a hostile .js mime type: %v", err)

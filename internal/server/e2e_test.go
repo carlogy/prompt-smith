@@ -107,6 +107,22 @@ func dispatchChange(sel, value string) chromedp.Action {
 	}
 }
 
+// appendAndDispatchInput appends suffix to sel's current value via JS
+// and dispatches a real, bubbling "input" event - the same event
+// index.html's hx-trigger="input changed delay:300ms" depends on to
+// start its debounce. Used instead of chromedp.Click+SendKeys where a
+// test needs the edit to land at a specific, deterministic spot (the
+// end of already-seeded content): clicking into a multi-row textarea
+// (see #goal's rows="3") places the caret wherever the click
+// coordinates happen to land relative to existing text, which is the
+// kind of layout-dependent guesswork this sidesteps entirely - the
+// same reasoning as dispatchChange above for the "change" event.
+func appendAndDispatchInput(sel, suffix string) chromedp.Action {
+	return chromedp.Evaluate(fmt.Sprintf(
+		`(function(){var el=document.querySelector(%q);el.value+=%q;el.dispatchEvent(new Event("input",{bubbles:true}));})()`,
+		sel, suffix), nil)
+}
+
 // waitForDownload polls dir for a file that isn't still mid-download
 // (Chrome names an in-progress download "<name>.crdownload" until it
 // completes) and returns its path, or fails the test after timeout.
@@ -238,6 +254,138 @@ func TestE2E_ClearButtonResetsForm(t *testing.T) {
 	}
 	if !placeholderShown {
 		t.Error("preview did not return to the empty-state placeholder after Clear")
+	}
+}
+
+// TestE2E_LivePreviewUpdatesAfterDebounce proves the live preview
+// still updates correctly now that the form swaps via
+// hx-swap="morph:innerHTML" instead of plain innerHTML replacement
+// (see index.html): typing into #examples, after waiting out htmx's
+// real 300ms debounce (hx-trigger="input changed delay:300ms"),
+// produces a preview whose rendered content includes what was typed.
+// This deliberately asserts only on rendered *content*: under
+// morphing, #preview-text is a reused node rather than a fresh one on
+// every update, so any assertion resting on node identity or on the
+// node having been replaced would be the wrong thing to check here -
+// see TestE2E_SelectionSurvivesLivePreviewMorph below for the test
+// that actually exercises that reuse.
+func TestE2E_LivePreviewUpdatesAfterDebounce(t *testing.T) {
+	url := startTestServer(t, prompt.Inputs{Target: "generic", Skills: []string{"diagnose"}, Goal: "fix the flaky test"})
+	ctx := newChromeContext(t)
+
+	const marker = "debounced-marker-42"
+	var containsMarker bool
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(url),
+		chromedp.WaitVisible("#preview-text", chromedp.ByQuery), // the seeded goal built once, async via htmx's "load" trigger
+		// #examples lives inside the "Optional fields" <details> (see
+		// index.html), collapsed by default since this fixture seeds no
+		// optional fields - and a collapsed <details>'s non-summary
+		// content isn't focusable, so Click below would fail without
+		// this. A real user would click the <summary> to get here;
+		// clicking it directly (rather than just forcing .open via JS)
+		// keeps this exercising the same toggle a user's click does.
+		chromedp.Click("main details summary", chromedp.ByQuery),
+		chromedp.Click("#examples", chromedp.ByQuery),
+		chromedp.SendKeys("#examples", marker, chromedp.ByQuery),
+		// Polls rather than a fixed Sleep past the 300ms debounce: this
+		// waits exactly as long as the real request+render+swap takes,
+		// no more, no less, and would time out (not false-pass) if the
+		// debounce were ever changed to something longer.
+		chromedp.Poll(fmt.Sprintf(`document.getElementById("preview-text").textContent.includes(%q)`, marker), &containsMarker,
+			chromedp.WithPollingTimeout(5*time.Second)),
+	)
+	if err != nil {
+		t.Fatalf("chromedp.Run: %v", err)
+	}
+	if !containsMarker {
+		t.Errorf("preview did not include %q after typing into #examples and waiting out the debounce", marker)
+	}
+}
+
+// selectSubstringJS is injected into the page by
+// TestE2E_SelectionSurvivesLivePreviewMorph to build a real
+// window.Selection over a substring of #preview-text's rendered
+// content. There is no chromedp action for "select this text" (that's
+// a purely in-page DOM operation, not an input-device gesture chromedp
+// otherwise models), so this walks #preview-text's text nodes directly
+// with a TreeWalker to find the one containing the target substring,
+// then builds a Range over exactly that substring - the same DOM APIs
+// a user's real text-drag selection produces.
+const selectSubstringJS = `function(rootId, substr) {
+	var root = document.getElementById(rootId);
+	var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+	var node;
+	while ((node = walker.nextNode())) {
+		var idx = node.nodeValue.indexOf(substr);
+		if (idx !== -1) {
+			var range = document.createRange();
+			range.setStart(node, idx);
+			range.setEnd(node, idx + substr.length);
+			var sel = window.getSelection();
+			sel.removeAllRanges();
+			sel.addRange(range);
+			return true;
+		}
+	}
+	return false;
+}`
+
+// TestE2E_SelectionSurvivesLivePreviewMorph is the headline regression
+// test for this phase: it proves a user's text selection inside the
+// live preview survives a re-render, which is the entire reason the
+// preview swaps via idiomorph (hx-swap="morph:innerHTML") instead of
+// htmx's default innerHTML replacement (see index.html). Plain
+// innerHTML replacement tears down and rebuilds every node under
+// #preview on each swap - including nodes whose rendered text didn't
+// even change - which unconditionally collapses any live
+// window.Selection pointing into the old tree. Idiomorph instead
+// reuses matching nodes across a swap, so a Selection anchored in a
+// part of the preview that didn't change (here, the seeded examples
+// text, while only the goal changes) keeps pointing at a still-live,
+// still-attached node afterward.
+//
+// This seeds Goal and Examples with distinct content on purpose: the
+// selection is made in the examples text specifically so the test
+// isn't merely checking that *something* under #preview survived -
+// selecting text that itself is left untouched by the edit is what
+// makes node-reuse (rather than incidental luck) the reason the
+// selection survives.
+func TestE2E_SelectionSurvivesLivePreviewMorph(t *testing.T) {
+	url := startTestServer(t, prompt.Inputs{
+		Target:   "generic",
+		Skills:   []string{"diagnose"},
+		Goal:     "original goal text",
+		Examples: []string{"stable example marker text"},
+	})
+	ctx := newChromeContext(t)
+
+	var selected, edited bool
+	var selectionBefore, selectionAfter string
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(url),
+		chromedp.WaitVisible("#preview-text", chromedp.ByQuery), // the seeded goal+examples built once
+		chromedp.Evaluate(fmt.Sprintf(`(%s)("preview-text", "example marker")`, selectSubstringJS), &selected),
+		chromedp.Evaluate(`window.getSelection().toString()`, &selectionBefore),
+		appendAndDispatchInput("#goal", "!"),
+		// Poll for the edit to actually land in the preview (proof the
+		// debounced re-render this test cares about really happened)
+		// before reading the selection back out.
+		chromedp.Poll(`document.getElementById("preview-text").textContent.includes("original goal text!")`, &edited,
+			chromedp.WithPollingTimeout(5*time.Second)),
+		chromedp.Evaluate(`window.getSelection().toString()`, &selectionAfter),
+	)
+	if err != nil {
+		t.Fatalf("chromedp.Run: %v", err)
+	}
+	if !selected {
+		t.Fatal("could not build a selection over \"example marker\" inside #preview-text")
+	}
+	if selectionBefore == "" {
+		t.Fatal("selection was empty immediately after being made, before any re-render")
+	}
+	if selectionAfter == "" {
+		t.Error("selection was cleared by the live-preview re-render; want it to survive the morph swap")
 	}
 }
 

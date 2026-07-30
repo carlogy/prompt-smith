@@ -5,9 +5,10 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>promptsmith</title>
 	<script src="/static/htmx.min.js"></script>
+	<script src="/static/idiomorph-ext.min.js"></script>
 	<link rel="stylesheet" href="/static/app.css">
 </head>
-<body class="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased dark:bg-slate-900 dark:text-slate-100">
+<body hx-ext="morph" class="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased dark:bg-slate-900 dark:text-slate-100">
 	<a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-cornflower-600 focus:shadow dark:focus:bg-slate-800 dark:focus:text-cornflower-300">Skip to content</a>
 	<div class="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
 		<header class="mb-10">
@@ -20,7 +21,7 @@
 				hx-post="/preview"
 				hx-trigger="input changed delay:300ms, load, promptsmith:refresh"
 				hx-target="#preview"
-				hx-swap="innerHTML"
+				hx-swap="morph:innerHTML"
 				hx-indicator="#preview-indicator">
 
 				<div>
