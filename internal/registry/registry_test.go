@@ -182,6 +182,44 @@ func TestRegistry_SupportsTarget(t *testing.T) {
 	}
 }
 
+// TestSkillByID_ExactMatchOnly pins SkillByID's contract as a plain,
+// unnormalized string comparison. Callers (e.g. internal/prompt) are
+// responsible for trimming/case-folding ids before lookup; this test
+// guards against a future "helpful" change to SkillByID that silently
+// duplicates or contradicts that caller-side normalization.
+func TestSkillByID_ExactMatchOnly(t *testing.T) {
+	reg, err := registry.LoadFS(minimalFS())
+	if err != nil {
+		t.Fatalf("LoadFS() error = %v", err)
+	}
+
+	cases := []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{"exact match", "diagnose", true},
+		{"leading space", " diagnose", false},
+		{"trailing space", "diagnose ", false},
+		{"upper-cased", "DIAGNOSE", false},
+		{"title-cased", "Diagnose", false},
+		{"empty string", "", false},
+		{"absent id", "definitely-not-a-skill", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sk, ok := reg.SkillByID(tc.id)
+			if ok != tc.want {
+				t.Fatalf("SkillByID(%q) ok = %v, want %v", tc.id, ok, tc.want)
+			}
+			if tc.want && sk.ID != tc.id {
+				t.Errorf("SkillByID(%q).ID = %q, want %q", tc.id, sk.ID, tc.id)
+			}
+		})
+	}
+}
+
 func TestLoadFS_MissingBodyFileErrors(t *testing.T) {
 	fsys := minimalFS()
 	delete(fsys, "bodies/debugging/diagnose.md")

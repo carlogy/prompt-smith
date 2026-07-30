@@ -40,6 +40,15 @@ func TestHelp_RootIncludesExamples(t *testing.T) {
 	if !strings.Contains(got, `promptsmith "fix`) {
 		t.Errorf("expected a sample goal invocation, got:\n%s", got)
 	}
+	if !strings.Contains(got, "-g, --goal") {
+		t.Errorf("expected --help to advertise the -g/--goal flag, got:\n%s", got)
+	}
+	if !strings.Contains(got, "-y, --copy") {
+		t.Errorf("expected --help to advertise the -y/--copy flag, got:\n%s", got)
+	}
+	if strings.Contains(got, "-C, --constraints") {
+		t.Errorf("expected the removed -C shorthand to no longer be advertised, got:\n%s", got)
+	}
 }
 
 func TestHelp_ListIncludesExamples(t *testing.T) {

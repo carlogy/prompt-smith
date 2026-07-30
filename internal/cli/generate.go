@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -50,12 +51,18 @@ var runTUIFunc = tui.Run
 var runServerFunc = server.Serve
 
 // errEmptyGoal is returned when no goal text was given.
-var errEmptyGoal = errors.New(`promptsmith: a goal is required, e.g. promptsmith "fix the flaky test"`)
+var errEmptyGoal = errors.New(`promptsmith: a goal is required, e.g. promptsmith "fix the flaky test" or promptsmith -g "fix the flaky test"`)
+
+// errGoalConflict is returned when a goal was given both via --goal and
+// as positional args: see resolveGoal for why these stay mutually
+// exclusive rather than one silently winning.
+var errGoalConflict = errors.New("promptsmith: --goal and a positional goal are mutually exclusive; pass the goal one of the two ways")
 
 // generateOptions holds the root command's flag values.
 type generateOptions struct {
 	target       string
 	skills       []string
+	goal         string
 	context      string
 	constraints  string
 	role         string
@@ -75,11 +82,12 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 
 	cmd.Flags().StringVarP(&opts.target, "target", "t", "generic", "target harness: generic|opencode|claude-code|gemini-cli|codex")
 	cmd.Flags().StringSliceVarP(&opts.skills, "skills", "s", nil, "skills to include (comma-separated or repeatable)")
+	cmd.Flags().StringVarP(&opts.goal, "goal", "g", "", "the goal/task (alternative to passing it as a positional argument)")
 	cmd.Flags().StringVarP(&opts.context, "context", "x", "", "background/context for the goal")
-	cmd.Flags().StringVarP(&opts.constraints, "constraints", "C", "", "constraints the solution must respect")
+	cmd.Flags().StringVarP(&opts.constraints, "constraints", "c", "", "constraints the solution must respect")
 	cmd.Flags().StringVarP(&opts.role, "role", "r", "", "role/persona to open the prompt with")
 	cmd.Flags().StringVarP(&opts.outputFormat, "output-format", "f", "", "desired shape of the response")
-	cmd.Flags().BoolVarP(&opts.toClipboard, "copy", "c", false, "copy the prompt to the clipboard instead of stdout")
+	cmd.Flags().BoolVarP(&opts.toClipboard, "copy", "y", false, "copy the prompt to the clipboard instead of stdout")
 	cmd.Flags().StringVarP(&opts.out, "out", "o", "", "write the prompt to this file instead of stdout")
 	cmd.Flags().BoolVarP(&opts.quick, "quick", "q", false, "never launch the interactive picker, even in a terminal")
 	cmd.Flags().BoolVar(&opts.tui, "tui", false, "launch the interactive picker even if --skills was given")
@@ -96,7 +104,24 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 	if err := validateUIFlags(cmd, opts); err != nil {
 		return err
 	}
-	goal := strings.TrimSpace(strings.Join(args, " "))
+
+	// Normalized here, at the CLI boundary, rather than deferred to
+	// prompt.Build: decideUseTUI and the no-skills note below both
+	// branch on len(opts.skills), and an unnormalized ["architect", ""]
+	// (from an unquoted "-s architect, ") would skew both counts even
+	// though only one skill actually resolves.
+	opts.skills = prompt.NormalizeSkills(opts.skills)
+
+	// Runs before resolveGoal deliberately: if someone writes
+	// `-g "goal" -s a, b`, the actionable skill-list hint should print
+	// before the goal-conflict error below aborts the command, not be
+	// swallowed by it.
+	warnStraySkillArgs(cmd.ErrOrStderr(), reg, opts.skills, args)
+
+	goal, err := resolveGoal(opts.goal, args)
+	if err != nil {
+		return err
+	}
 	if opts.ui {
 		return runUI(cmd, reg, opts, goal)
 	}
@@ -131,12 +156,71 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 
 	// Note the goal-only fallback only once generation has actually
 	// succeeded - an invalid target/skill should just error, not also
-	// claim a goal-only prompt was generated.
+	// claim a goal-only prompt was generated. The parenthetical points
+	// at both remaining ways to get skills into the prompt: --skills
+	// itself, or the interactive picker (now shipped, not a future
+	// promise) for anyone running in a terminal without --quick.
 	if len(opts.skills) == 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: no --skills given; generating a goal-only prompt (interactive skill picker arrives in a later release)")
+		fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: no --skills given; generating a goal-only prompt (pass --skills, or run in a terminal without --quick for the interactive picker)")
 	}
 
 	return deliver(cmd, opts, out)
+}
+
+// resolveGoal picks the goal from --goal or the positional args, which
+// are mutually exclusive: silently merging them (or letting one win)
+// hides the common mistake of an unquoted multi-word value leaking
+// stray words into the goal.
+func resolveGoal(flagGoal string, args []string) (string, error) {
+	positional := strings.TrimSpace(strings.Join(args, " "))
+	flagGoal = strings.TrimSpace(flagGoal)
+	if flagGoal != "" && positional != "" {
+		return "", errGoalConflict
+	}
+	if flagGoal != "" {
+		return flagGoal, nil
+	}
+	return positional, nil
+}
+
+// warnStraySkillArgs flags the classic `-s a, b, c` mistake: the shell
+// splits the spaced list, --skills only receives "a", and "b"/"c" land
+// in the positional args where they're silently absorbed into the goal.
+// Reported rather than rejected: a legitimate goal can name a skill in
+// passing, so this stays a hint on stderr.
+func warnStraySkillArgs(w io.Writer, reg *registry.Registry, skills, args []string) {
+	if len(skills) == 0 || len(args) == 0 {
+		return
+	}
+
+	selected := make(map[string]bool, len(skills))
+	for _, id := range skills {
+		selected[id] = true
+	}
+
+	var strays []string
+	seen := make(map[string]bool)
+	for _, arg := range args {
+		candidate := strings.TrimSpace(arg)
+		candidate = strings.TrimSuffix(candidate, ",")
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || selected[candidate] {
+			continue
+		}
+		if _, ok := reg.SkillByID(candidate); !ok {
+			continue
+		}
+		if seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		strays = append(strays, candidate)
+	}
+
+	if len(strays) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "promptsmith: warning: parsed as goal text, not skills: %s; --skills takes a comma-separated list with no spaces (e.g. -s a,b,c)\n", strings.Join(strays, ", "))
 }
 
 // validateUIFlags enforces --ui's flag relationships: --port and

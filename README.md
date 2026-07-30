@@ -146,10 +146,11 @@ promptsmith "fix the flaky checkout test"
 promptsmith -t claude-code -s diagnose,verify \
   --role "You are a senior Go engineer." \
   --context "checkout_test.go:42 is flaky." \
+  -c "don't change the test's timeout value" \
   "fix the flaky checkout test"
 
 # Copy to the clipboard, or write to a file, instead of stdout:
-promptsmith -s diagnose -c "fix the bug"
+promptsmith -s diagnose -y "fix the bug"
 promptsmith -s diagnose -o ~/prompts/fix-the-bug.txt "fix the bug"
 
 # No -s, no --quick, run from a terminal: launches an interactive
@@ -167,7 +168,7 @@ The root command generates a prompt; everything else is a subcommand.
 
 | Command | Purpose |
 |---|---|
-| `promptsmith [flags] <goal>` | Generate a prompt (see flags below). |
+| `promptsmith [flags] <goal>` | Generate a prompt (see flags below); `<goal>` may be given positionally or via `-g`/`--goal` - the two are mutually exclusive. |
 | `promptsmith list [-t target]` | List available skills by category, optionally filtered to those supported on a target. |
 | `promptsmith validate` | Check the loaded registry's structural integrity (duplicate ids, dangling categories/refs). |
 | `promptsmith version` | Print the build version. |
@@ -177,15 +178,60 @@ The root command generates a prompt; everything else is a subcommand.
 | Flag | Alias | Description |
 |---|---|---|
 | `--target` | `-t` | Target harness: `generic`\|`opencode`\|`claude-code`\|`gemini-cli`\|`codex` (default `generic`). |
-| `--skills` | `-s` | Skills to include (comma-separated or repeatable). |
+| `--skills` | `-s` | Skills to include. Comma-separated with **no spaces**, or repeat the flag. |
+| `--goal` | `-g` | The goal/task. An alternative to passing the goal as a positional argument; the two are mutually exclusive. |
 | `--context` | `-x` | Background/context for the goal. |
-| `--constraints` | `-C` | Constraints the solution must respect. |
+| `--constraints` | `-c` | Constraints the solution must respect. |
 | `--role` | `-r` | Role/persona to open the prompt with. |
 | `--output-format` | `-f` | Desired shape of the response. |
-| `--copy` | `-c` | Copy the prompt to the clipboard instead of stdout. |
+| `--copy` | `-y` | Copy the prompt to the clipboard instead of stdout. |
 | `--out` | `-o` | Write the prompt to this file instead of stdout (accepts `~`/`~user`; missing parent directories are created). |
 | `--quick` | `-q` | Never launch the interactive picker, even in a terminal. |
 | `--tui` | | Launch the interactive picker even if `--skills` was given. |
+| `--ui` | | Launch the local web UI in your browser. |
+| `--port` | | Port for `--ui` to bind (default: an OS-assigned free port). |
+| `--no-browser` | | With `--ui`, don't automatically open a browser. |
+
+#### Quoting and list syntax
+
+Quote every multi-word flag value. An unquoted value is split by your
+shell into separate words, and promptsmith treats each extra word as its
+own positional argument, silently folding it into the goal - `-x fix the
+login bug` (no quotes) does *not* set `--context` to `"fix the login
+bug"`; it sets it to `fix`, and `the`, `login`, and `bug` end up appended
+to the goal instead.
+
+`--skills` takes a comma-separated list with **no spaces after the
+commas**, or you can repeat the flag - both forms are equivalent:
+
+```sh
+# Comma-separated, no spaces after the commas:
+promptsmith -s diagnose,verify,tdd "fix the flaky checkout test"
+
+# Or repeat the flag:
+promptsmith -s diagnose -s verify -s tdd "fix the flaky checkout test"
+```
+
+A stray space or trailing comma (`-s "diagnose, verify"`, `-s diagnose,`)
+is tolerated - surrounding whitespace is trimmed and empty entries are
+dropped. What's *not* tolerated is a plain space-separated list without
+commas: `-s diagnose verify tdd` only sets `diagnose` as a skill, and
+`verify` and `tdd` leak into the goal as ordinary words. If a leaked word
+happens to match a known skill id, promptsmith warns on stderr so the
+mistake doesn't pass silently.
+
+`--goal`/`-g` and a positional goal are mutually exclusive - passing
+both is a hard error, not a silent merge, so you always know which one
+won.
+
+```sh
+promptsmith -t claude-code -s diagnose,verify \
+  -g "fix the flaky checkout test" \
+  -x "checkout_test.go:42 fails about 1 in 20 runs." \
+  -c "don't change the test's timeout value" \
+  -r "You are a senior Go engineer." \
+  -y
+```
 
 `--copy` and `--out` are additive - both can apply to the same
 invocation. Without either, the prompt goes to stdout.

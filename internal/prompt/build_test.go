@@ -18,6 +18,7 @@
 package prompt_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -142,13 +143,36 @@ func TestBuild_UnknownTargetErrors(t *testing.T) {
 func TestBuild_UnknownSkillErrors(t *testing.T) {
 	reg := fixtureRegistry()
 
-	_, err := prompt.Build(reg, prompt.Inputs{
-		Target: "generic",
-		Skills: []string{"does-not-exist"},
-		Goal:   "Fix the flaky checkout test.",
-	})
-	if err == nil {
-		t.Fatal("Build() error = nil, want an error for an unknown skill")
+	tests := []struct {
+		name    string
+		skills  []string
+		wantErr string // exact error message, or "" to just check err != nil
+	}{
+		{
+			name:   "unknown id",
+			skills: []string{"does-not-exist"},
+		},
+		{
+			name:    "whitespace-padded id reports the trimmed id",
+			skills:  []string{" nope "},
+			wantErr: `prompt: unknown skill "nope"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := prompt.Build(reg, prompt.Inputs{
+				Target: "generic",
+				Skills: tt.skills,
+				Goal:   "Fix the flaky checkout test.",
+			})
+			if err == nil {
+				t.Fatal("Build() error = nil, want an error for an unknown skill")
+			}
+			if tt.wantErr != "" && err.Error() != tt.wantErr {
+				t.Errorf("Build() error = %q, want %q", err.Error(), tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -318,5 +342,68 @@ func TestBuild_SkillUnsupportedOnInlineTargetErrors(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Build() error = nil, want an error for a skill with no generic body")
+	}
+}
+
+func TestNormalizeSkills(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"leading whitespace trimmed", []string{" diagnose"}, []string{"diagnose"}},
+		{"trailing whitespace trimmed", []string{"diagnose "}, []string{"diagnose"}},
+		{"surrounding whitespace trimmed", []string{"  diagnose  "}, []string{"diagnose"}},
+		{"trailing empty entry dropped", []string{"diagnose", ""}, []string{"diagnose"}},
+		{"single empty entry dropped", []string{""}, []string{}},
+		{"multiple empty entries dropped", []string{"", ""}, []string{}},
+		{"whitespace-only entry dropped", []string{"  "}, []string{}},
+		{"nil input", nil, []string{}},
+		{"order preserved across mixed entries", []string{" c", "a ", "  b  "}, []string{"c", "a", "b"}},
+		{"does not dedupe", []string{"a", "a"}, []string{"a", "a"}},
+		{"does not case-fold", []string{"Diagnose"}, []string{"Diagnose"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := prompt.NormalizeSkills(tt.in)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NormalizeSkills(%#v) = %#v, want %#v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuild_NormalizesSkillIDs(t *testing.T) {
+	reg := fixtureRegistry()
+
+	got, err := prompt.Build(reg, prompt.Inputs{
+		Target: "generic",
+		Skills: []string{" diagnose ", "", "diagnose"},
+		Goal:   "goal",
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if n := strings.Count(got, "pass/fail signal"); n != 1 {
+		t.Errorf("expected diagnose's body to appear once, appeared %d times:\n%s", n, got)
+	}
+}
+
+func TestBuild_AllSkillsEmptyRendersNoApproachSection(t *testing.T) {
+	reg := fixtureRegistry()
+
+	got, err := prompt.Build(reg, prompt.Inputs{
+		Target: "generic",
+		Skills: []string{"", "  "},
+		Goal:   "goal",
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if strings.Contains(got, "<approach>") {
+		t.Errorf("expected no <approach> section when all skills are empty, got:\n%s", got)
 	}
 }

@@ -58,13 +58,18 @@ func newRootCmd(reg *registry.Registry) *cobra.Command {
 a set of methodology skills, and a target harness (generic, opencode,
 claude-code, gemini-cli, codex).
 
+The goal may be passed positionally or via -g/--goal; the two are
+mutually exclusive.
+
 No LLM runs at generation time: the prompt is assembled from a built-in
 registry of skills and per-target rendering rules.`,
 		Example: `  promptsmith "fix the flaky checkout test"
   promptsmith -t opencode -s diagnose,verify "fix the flaky checkout test"
   promptsmith -t gemini-cli -s diagnose "fix the flaky checkout test"
-  promptsmith -s diagnose -c "fix the bug"          # copy to clipboard
-  promptsmith --tui                                 # interactive picker`,
+  promptsmith -s diagnose -g "fix the flaky checkout test"  # goal via flag
+  promptsmith -s diagnose -c "no new deps" "fix the bug"    # constraints
+  promptsmith -s diagnose -y "fix the bug"                  # copy to clipboard
+  promptsmith --tui                                         # interactive picker`,
 		Version: buildVersion(), // enables the --version flag cobra provides automatically
 		Args:    cobra.ArbitraryArgs,
 		// We print errors ourselves in Execute (and tests read the

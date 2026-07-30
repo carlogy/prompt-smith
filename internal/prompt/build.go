@@ -133,10 +133,31 @@ func buildTools(target registry.TargetConfig) string {
 	return strings.Join(lines, "\n")
 }
 
-// resolveSkills looks up each id (deduping repeats, preserving first
-// occurrence), then sorts the result via the registry's canonical
+// NormalizeSkills trims surrounding whitespace from each id and drops
+// any that are empty after trimming, preserving input order. It exists
+// because pflag's StringSlice flag (used for --skills) CSV-splits its
+// argument, so "-s a, b" and "-s a," yield [" b"] and [""] respectively
+// as literal elements - both of which would otherwise hard-error as
+// unknown skills. It does not dedupe (see resolveSkills) and does not
+// case-fold: skill matching stays case-sensitive.
+func NormalizeSkills(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+// resolveSkills normalizes ids (trimming whitespace and dropping empty
+// entries), looks up each remaining id (deduping repeats, preserving
+// first occurrence), then sorts the result via the registry's canonical
 // ordering (category position, then weight, then id).
 func resolveSkills(reg *registry.Registry, ids []string) ([]registry.Skill, error) {
+	ids = NormalizeSkills(ids)
 	seen := make(map[string]bool, len(ids))
 	skills := make([]registry.Skill, 0, len(ids))
 	for _, id := range ids {

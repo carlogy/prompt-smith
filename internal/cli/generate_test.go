@@ -277,14 +277,14 @@ func TestGenerate_CopyUsesClipboardSeamAndSuppressesStdout(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "-c", "goal"})
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "-y", "goal"})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
 	}
 
 	if stdout.Len() != 0 {
-		t.Errorf("expected stdout to be suppressed when -c is set, got:\n%s", stdout.String())
+		t.Errorf("expected stdout to be suppressed when -y is set, got:\n%s", stdout.String())
 	}
 	if !strings.Contains(copied, "pass/fail") {
 		t.Errorf("expected clipboard content to contain the diagnose body, got:\n%s", copied)
@@ -316,6 +316,9 @@ func TestGenerate_NoSkillsProducesGoalOnlyPromptWithStderrNote(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--skills") {
 		t.Errorf("expected a stderr note mentioning --skills, got:\n%s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "later release") {
+		t.Errorf("expected the stale 'later release' claim to be gone, got:\n%s", stderr.String())
 	}
 }
 
@@ -585,7 +588,7 @@ func TestGenerate_ShortAliasesMatchLongForms(t *testing.T) {
 		{"role", "-r", "--role", "a senior engineer", "role"},
 		{"output-format", "-f", "--output-format", "a diff", "output_format"},
 		{"context", "-x", "--context", "some context", "context"},
-		{"constraints", "-C", "--constraints", "no new deps", "constraints"},
+		{"constraints", "-c", "--constraints", "no new deps", "constraints"},
 	}
 
 	for _, tc := range cases {
@@ -871,5 +874,321 @@ func TestGenerate_TUIStdoutActionGoesToRealStdoutNotStderr(t *testing.T) {
 	}
 	if strings.Contains(stderr, "pass/fail") {
 		t.Errorf("the generated prompt leaked onto real stderr:\n%s", stderr)
+	}
+}
+
+func TestResolveGoal(t *testing.T) {
+	cases := []struct {
+		name     string
+		flagGoal string
+		args     []string
+		want     string
+		wantErr  error
+	}{
+		{"flag only", "fix the flaky checkout test", nil, "fix the flaky checkout test", nil},
+		{"positional only", "", []string{"fix", "the", "flaky", "checkout", "test"}, "fix the flaky checkout test", nil},
+		{"multi-word positional joined with single spaces", "", []string{"fix", "the", "bug"}, "fix the bug", nil},
+		{"both set -> conflict", "fix the bug", []string{"fix", "the", "bug"}, "", errGoalConflict},
+		{"neither set -> empty, no error", "", nil, "", nil},
+		{"whitespace-only flag -> empty, no error", "   ", nil, "", nil},
+		{"whitespace-only flag plus positional -> positional wins, no conflict", "   ", []string{"fix", "the", "bug"}, "fix the bug", nil},
+		{"flag with surrounding whitespace is trimmed", "  fix the bug  ", nil, "fix the bug", nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveGoal(tc.flagGoal, tc.args)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("resolveGoal() error = %v, want %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveGoal() error = %v, want nil", err)
+			}
+			if got != tc.want {
+				t.Errorf("resolveGoal() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGenerate_GoalFlagMatchesPositionalGoal(t *testing.T) {
+	run := func(args []string) string {
+		reg := testRegistry(t)
+		root := newRootCmd(reg)
+		var stdout, stderr bytes.Buffer
+		root.SetOut(&stdout)
+		root.SetErr(&stderr)
+		root.SetArgs(args)
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+		}
+		return stdout.String()
+	}
+
+	short := run([]string{"-t", "generic", "-s", "diagnose", "-g", "fix the flaky checkout test"})
+	long := run([]string{"-t", "generic", "-s", "diagnose", "--goal", "fix the flaky checkout test"})
+	positional := run([]string{"-t", "generic", "-s", "diagnose", "fix the flaky checkout test"})
+
+	if short != long || short != positional {
+		t.Errorf("-g, --goal, and positional produced different output:\n-g:         %q\n--goal:     %q\npositional: %q", short, long, positional)
+	}
+}
+
+func TestGenerate_GoalFlagAndPositionalTogetherError(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "-g", "fix the bug", "fix the bug"})
+
+	err := root.Execute()
+	if !errors.Is(err, errGoalConflict) {
+		t.Errorf("Execute() error = %v, want errGoalConflict", err)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("expected no stdout on a goal conflict, got:\n%s", stdout.String())
+	}
+}
+
+func TestGenerate_GoalFlagWhitespaceOnlyErrors(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "-g", "   "})
+
+	err := root.Execute()
+	if !errors.Is(err, errEmptyGoal) {
+		t.Errorf("Execute() error = %v, want errEmptyGoal", err)
+	}
+}
+
+func TestGenerate_RemovedShorthandsError(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "-C", "no new deps", "goal"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want an error for the removed -C shorthand")
+	}
+	if !strings.Contains(err.Error(), "unknown shorthand flag") {
+		t.Errorf("Execute() error = %v, want it to mention 'unknown shorthand flag'", err)
+	}
+}
+
+func TestGenerate_ConstraintsShorthandNoLongerCopies(t *testing.T) {
+	clipboardCalled := false
+	defer stubClipboard(t, func(s string) error {
+		clipboardCalled = true
+		return nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose", "-c", "no new deps", "goal"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+
+	want := "<constraints>\nno new deps\n</constraints>"
+	if !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout missing %q, got:\n%s", want, stdout.String())
+	}
+	if clipboardCalled {
+		t.Error("expected -c to set constraints, not invoke the clipboard seam")
+	}
+}
+
+func TestGenerate_SkillsWithSpacesAfterCommasResolve(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", "diagnose, verify", "goal"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "pass/fail") {
+		t.Errorf("stdout missing diagnose body, got:\n%s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "meaningful change") {
+		t.Errorf("stdout missing verify body, got:\n%s", stdout.String())
+	}
+}
+
+// TestGenerate_WarnsOnSkillNamesParsedAsGoal pins the shell-splitting
+// failure mode that motivated warnStraySkillArgs: an unquoted, spaced
+// --skills list (`-s a, b, c`) gets CSV-split into "a" by --skills
+// while the shell hands "b," and "c" to promptsmith as ordinary
+// positional args, which used to silently join the goal text. The old
+// behavior hard-errored on the accompanying blank id ("unknown skill
+// \"\""); this pins that the command now succeeds, warns on stderr
+// naming the stray skill-shaped words, and builds a prompt using only
+// the skill(s) that actually landed in --skills.
+func TestGenerate_WarnsOnSkillNamesParsedAsGoal(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "opencode", "-s", "diagnose,", "verify,", "tdd", "refactor the parser"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, want nil (the old unknown-skill abort must be gone), stderr = %s", err, stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "verify") || !strings.Contains(stderr.String(), "tdd") {
+		t.Errorf("expected stderr to name both stray skill-shaped args, got:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "no spaces") {
+		t.Errorf("expected stderr to include the corrective hint about no spaces, got:\n%s", stderr.String())
+	}
+
+	// Isolate the <approach> section: the goal text here (itself the
+	// stray positional args, e.g. "verify, tdd refactor the parser")
+	// legitimately contains "verify"/"tdd" inside <task>, so asserting
+	// their absence has to be scoped to <approach>, not the whole
+	// output.
+	approach, ok := betweenTags(stdout.String(), "approach")
+	if !ok {
+		t.Fatalf("stdout missing an <approach> section, got:\n%s", stdout.String())
+	}
+	if !strings.Contains(approach, "Load the `diagnose` skill") {
+		t.Errorf("<approach> missing diagnose's reference content, got:\n%s", approach)
+	}
+	if strings.Contains(approach, "verify") || strings.Contains(approach, "tdd") {
+		t.Errorf("expected <approach> to have no verify/tdd content (they were never in --skills), got:\n%s", approach)
+	}
+}
+
+// betweenTags returns the text strictly between "<tag>\n" and "\n</tag>"
+// in s, and whether the tag was found at all.
+func betweenTags(s, tag string) (string, bool) {
+	open := "<" + tag + ">\n"
+	closeTag := "\n</" + tag + ">"
+	start := strings.Index(s, open)
+	if start == -1 {
+		return "", false
+	}
+	start += len(open)
+	end := strings.Index(s[start:], closeTag)
+	if end == -1 {
+		return "", false
+	}
+	return s[start : start+end], true
+}
+
+func TestGenerate_NoStrayWarningWhenGoalNamesASelectedSkill(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", "verify", "add a verify step to CI"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "warning:") {
+		t.Errorf("expected no stray-skill warning when the goal merely names an already-selected skill, got:\n%s", stderr.String())
+	}
+}
+
+func TestGenerate_NoStrayWarningWithoutSkillsFlag(t *testing.T) {
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "run the verify skill"}) // no -s
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "warning:") {
+		t.Errorf("expected no stray-skill warning with no --skills given (stderr will still have the no-skills note), got:\n%s", stderr.String())
+	}
+}
+
+func TestGenerate_TUISeedsGoalFromGoalFlag(t *testing.T) {
+	defer stubInteractive(t, true)()
+
+	var gotGoal string
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		gotGoal = in.Goal
+		in.Skills = []string{"diagnose"}
+		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"--tui", "-g", "fix the flaky checkout test"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if gotGoal != "fix the flaky checkout test" {
+		t.Errorf("prompt.Inputs.Goal = %q, want %q", gotGoal, "fix the flaky checkout test")
+	}
+}
+
+func TestGenerate_UISeedsGoalFromGoalFlag(t *testing.T) {
+	var gotOpts server.Options
+	defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+		gotOpts = opts
+		return nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"--ui", "-g", "fix the flaky checkout test"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if gotOpts.Initial.Goal != "fix the flaky checkout test" {
+		t.Errorf("server.Options.Initial.Goal = %q, want %q", gotOpts.Initial.Goal, "fix the flaky checkout test")
+	}
+}
+
+func TestGenerate_SkillsAllEmptyFallsBackToGoalOnly(t *testing.T) {
+	defer stubInteractive(t, false)() // picker must not launch
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "-s", ",", "goal"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "<approach>") {
+		t.Errorf("expected no <approach> section when --skills normalizes to empty, got:\n%s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "--skills") {
+		t.Errorf("expected the no-skills note on stderr, got:\n%s", stderr.String())
 	}
 }
