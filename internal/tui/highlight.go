@@ -20,14 +20,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/carlogy/prompt-smith/internal/prompthl"
-)
-
-var (
-	openTagStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
-	closeTagStyle = lipgloss.NewStyle().Faint(true)
 )
 
 // highlightTags colorizes each <tag>/</tag> line of raw for display -

@@ -27,22 +27,6 @@ import (
 	"github.com/carlogy/prompt-smith/internal/fielddesc"
 )
 
-var (
-	// activeColor highlights whatever currently has focus: the cursor
-	// line/row (skill cursor, focused field, preview title) and the
-	// border of whichever pane (left: skills+fields, right: preview)
-	// contains it. Matches the bright-cyan accent already used for tag
-	// highlighting in the preview (P1's highlightTags).
-	activeColor = lipgloss.Color("14")
-
-	categoryHeaderStyle = lipgloss.NewStyle().Bold(true).Underline(true)
-	cursorLineStyle     = lipgloss.NewStyle().Bold(true).Foreground(activeColor)
-	paneStyle           = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
-	focusedPaneStyle    = paneStyle.BorderForeground(activeColor)
-	footerStyle         = lipgloss.NewStyle().Faint(true)
-	previewTitleStyle   = lipgloss.NewStyle().Bold(true)
-)
-
 // fieldDescriptorKey maps a text-field focus zone to its
 // internal/fielddesc key, so the footer can show a per-field
 // descriptor sentence instead of a generic "type to edit" hint - the
