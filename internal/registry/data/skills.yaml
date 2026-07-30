@@ -1,10 +1,12 @@
 categories:
   - planning
+  - research
   - coding
   - debugging
   - testing
   - review
   - git
+  - safety
   - communication
   - learning
 
@@ -36,6 +38,16 @@ skills:
       Stress-testing a plan or design by being interviewed about it until every
       ambiguous term and edge case is resolved.
     body: bodies/planning/grill-me.md
+
+  - id: quote-grounding
+    name: Quote Grounding
+    category: research
+    order: 10
+    when_to_use: >-
+      Answering a question grounded in one or more long documents, where
+      extracting the relevant quotes first keeps the answer anchored to the
+      source rather than a skim.
+    body: bodies/research/quote-grounding.md
 
   - id: lean-code
     name: Lean Code
@@ -75,6 +87,16 @@ skills:
     refs:
       claude-code: verify-checks
 
+  - id: generalize-not-hardcode
+    name: Generalize Not Hardcode
+    category: testing
+    order: 30
+    when_to_use: >-
+      Implementing a feature or fix against a given test suite, where the
+      temptation is to special-case the test inputs instead of writing the
+      real algorithm.
+    body: bodies/testing/generalize-not-hardcode.md
+
   - id: caveman-review
     name: Caveman Review
     category: review
@@ -92,6 +114,16 @@ skills:
       Writing a commit message for staged changes, favoring Conventional Commits
       format over long narrative descriptions.
     body: bodies/git/caveman-commit.md
+
+  - id: safe-actions
+    name: Safe Actions
+    category: safety
+    order: 10
+    when_to_use: >-
+      Deciding whether to act on something destructive or hard to reverse —
+      deleting files, force-pushing, dropping data — versus routine
+      reversible work that's safe to do without asking.
+    body: bodies/safety/safe-actions.md
 
   - id: caveman
     name: Caveman

@@ -37,11 +37,20 @@ func TestList_GroupsByCategoryInCanonicalOrder(t *testing.T) {
 	}
 
 	out := stdout.String()
-	// "planning" precedes "debugging" in the canonical category order;
-	// their listed headers must appear in the same order.
-	pi, di := strings.Index(out, "PLANNING"), strings.Index(out, "DEBUGGING")
-	if pi < 0 || di < 0 || pi > di {
-		t.Errorf("expected PLANNING before DEBUGGING, got:\n%s", out)
+	// The canonical category order is planning, research, coding,
+	// debugging, testing, review, git, safety, communication, learning;
+	// their listed headers must appear in that exact order.
+	headers := []string{
+		"PLANNING", "RESEARCH", "CODING", "DEBUGGING", "TESTING", "REVIEW",
+		"GIT", "SAFETY", "COMMUNICATION", "LEARNING",
+	}
+	prevIdx := -1
+	for _, h := range headers {
+		idx := strings.Index(out, h)
+		if idx < 0 || idx < prevIdx {
+			t.Fatalf("expected category headers in canonical order %v, got:\n%s", headers, out)
+		}
+		prevIdx = idx
 	}
 	if !strings.Contains(out, "architect") {
 		t.Errorf("expected architect to be listed, got:\n%s", out)

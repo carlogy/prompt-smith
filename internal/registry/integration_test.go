@@ -46,8 +46,8 @@ func TestLoad_RealRegistryIsValid(t *testing.T) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 
-	if len(reg.Skills) != 11 {
-		t.Errorf("len(Skills) = %d, want 11", len(reg.Skills))
+	if len(reg.Skills) != 14 {
+		t.Errorf("len(Skills) = %d, want 14", len(reg.Skills))
 	}
 
 	for _, target := range []string{"generic", "opencode", "claude-code", "gemini-cli", "codex"} {
@@ -89,5 +89,56 @@ func TestLoad_RealRegistryIsValid(t *testing.T) {
 	}
 	if len(leanCode.Refs) != 0 {
 		t.Errorf("lean-code.Refs = %v, want none", leanCode.Refs)
+	}
+}
+
+// TestLoad_RealRegistry_ResearchAndSafetyCategories guards the "research"
+// and "safety" categories (and their skills) added alongside "planning"
+// and "git" respectively: both must be declared, and each of their
+// skills must resolve with the right category, a non-empty body, and no
+// target-specific refs.
+func TestLoad_RealRegistry_ResearchAndSafetyCategories(t *testing.T) {
+	t.Setenv("PROMPTSMITH_SKILLS_DIR", t.TempDir())
+
+	reg, _, err := registry.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	wantCategories := map[string]bool{"research": false, "safety": false}
+	for _, c := range reg.Categories {
+		if _, ok := wantCategories[c]; ok {
+			wantCategories[c] = true
+		}
+	}
+	for c, found := range wantCategories {
+		if !found {
+			t.Errorf("expected category %q to be declared, got categories %v", c, reg.Categories)
+		}
+	}
+
+	cases := []struct {
+		id       string
+		category string
+	}{
+		{"quote-grounding", "research"},
+		{"generalize-not-hardcode", "testing"},
+		{"safe-actions", "safety"},
+	}
+	for _, tc := range cases {
+		sk, ok := reg.SkillByID(tc.id)
+		if !ok {
+			t.Errorf("expected skill %q to be loaded", tc.id)
+			continue
+		}
+		if sk.Category != tc.category {
+			t.Errorf("%s.Category = %q, want %q", tc.id, sk.Category, tc.category)
+		}
+		if sk.Body == "" {
+			t.Errorf("%s.Body is empty, want non-empty", tc.id)
+		}
+		if len(sk.Refs) != 0 {
+			t.Errorf("%s.Refs = %v, want none", tc.id, sk.Refs)
+		}
 	}
 }
