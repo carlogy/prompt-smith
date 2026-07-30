@@ -220,7 +220,12 @@ func (m model) viewTarget(width int) string {
 // gutter scrollbar in the last column of width. The cursor row is only
 // marked with \u203a when skills is the focused zone - otherwise it
 // would look active (and up/down would appear broken, since they're
-// actually routed elsewhere) even when it isn't focused.
+// actually routed elsewhere) even when it isn't focused. A disabled
+// row (the current target doesn't support that skill) always renders
+// with the "[-]" marker and disabledSkillStyle's faint treatment, cursor
+// or not - landing the cursor there (deliberately possible; see
+// prevSelectable/nextSelectable) makes the row reachable and readable,
+// not "active".
 func (m model) viewSkillList(windowHeight, width int) string {
 	// -1: the "Skills" title consumes one row of the pane's content
 	// budget, leaving windowHeight-1 rows for the scrollable list.
@@ -236,13 +241,24 @@ func (m model) viewSkillList(windowHeight, width int) string {
 		}
 
 		mark := "[ ]"
-		if it.selected {
+		switch {
+		case it.disabled:
+			mark = "[-]"
+		case it.selected:
 			mark = "[x]"
 		}
 		line := fmt.Sprintf("%s %s", mark, it.skill.ID)
-		if globalIndex == m.cursor && m.focus == focusSkills {
+		isCursor := globalIndex == m.cursor && m.focus == focusSkills
+		switch {
+		case it.disabled:
+			prefix := "  "
+			if isCursor {
+				prefix = "\u203a "
+			}
+			line = disabledSkillStyle.Render(prefix + line)
+		case isCursor:
 			line = cursorLineStyle.Render("\u203a " + line)
-		} else {
+		default:
 			line = "  " + line
 		}
 		lines = append(lines, line)

@@ -30,7 +30,7 @@ import (
 // manySkillsRegistry returns a registry with n skills in a single
 // category, all supported on "generic" - enough selectable items that
 // a page (several rows) is a small fraction of the whole list, unlike
-// fixtureRegistry's 2 selectable items. Used to exercise real paging
+// fixtureRegistry's 3 non-header rows. Used to exercise real paging
 // (as opposed to the short-list clamp case, which fixtureRegistry
 // already covers on its own).
 func manySkillsRegistry(n int) *registry.Registry {
@@ -156,9 +156,14 @@ func TestSkills_PgUpClampsAtFirstSelectableItem(t *testing.T) {
 }
 
 func TestSkills_ShortListClampsToFirstAndLastSelectable(t *testing.T) {
-	// fixtureRegistry's generic items are only 2 selectable (diagnose,
-	// verify) - far shorter than any real page size, exercising the
-	// "list shorter than one page" case (requirement 4).
+	// fixtureRegistry's generic items are 3 non-header rows (diagnose,
+	// verify, agent-only) - far shorter than any real page size,
+	// exercising the "list shorter than one page" case (requirement 4).
+	// agent-only is disabled (unsupported on generic) but still a
+	// reachable non-header row - cursor navigation (prevSelectable/
+	// nextSelectable, which pageSkills is built on) deliberately treats
+	// a disabled row exactly like any other selectable one, so it's
+	// the last row PgDown clamps to, not verify.
 	reg := fixtureRegistry()
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "g"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
@@ -169,8 +174,11 @@ func TestSkills_ShortListClampsToFirstAndLastSelectable(t *testing.T) {
 	if last.items[last.cursor].isHeader {
 		t.Fatal("PgDown landed on a header")
 	}
-	if got := last.items[last.cursor].skill.ID; got != "verify" {
-		t.Errorf("PgDown on a short list landed on %q, want %q (the last selectable item)", got, "verify")
+	if got := last.items[last.cursor].skill.ID; got != "agent-only" {
+		t.Errorf("PgDown on a short list landed on %q, want %q (the last row, disabled but still reachable)", got, "agent-only")
+	}
+	if !last.items[last.cursor].disabled {
+		t.Error("expected the last row (agent-only) to be disabled")
 	}
 
 	up, _ := last.Update(tea.KeyMsg{Type: tea.KeyPgUp})

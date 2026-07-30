@@ -56,6 +56,19 @@ var (
 	footerStyle         = lipgloss.NewStyle().Faint(true)
 	previewTitleStyle   = lipgloss.NewStyle().Bold(true)
 
+	// disabledSkillStyle renders a skill row the current target
+	// doesn't support (viewSkillList, item.disabled). Faint alone is
+	// deliberately NOT the only signal that a row is disabled -
+	// viewSkillList also swaps its "[ ]"/"[x]" marker for "[-]" on
+	// these rows, mirroring the web UI's own rule that unsupported-ness
+	// must never be conveyed by dimming/color alone (a low-contrast
+	// terminal palette can render Faint(true) as barely
+	// distinguishable from normal text). Reuses footerStyle's
+	// Faint(true) rather than a new literal, for the same "advisory/
+	// secondary" visual vocabulary hintsBodyStyle already borrows it
+	// for.
+	disabledSkillStyle = footerStyle
+
 	// openTagStyle shares activeColor with the cursor/border styles
 	// above rather than repeating its own literal, which is the fix
 	// for the drift this file exists to prevent in the first place:

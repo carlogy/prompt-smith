@@ -29,7 +29,8 @@ import (
 // At 80x24 the fixtureRegistry list (generic) fits with offset 0, so
 // screen rows map directly: row listTopOffset+index. On generic the
 // items are [header:debugging(0), diagnose(1), header:testing(2),
-// verify(3)], so verify sits at y = listTopOffset+3.
+// verify(3), agent-only(4, disabled)], so verify sits at
+// y = listTopOffset+3.
 func leftClick(x, y int) tea.MouseMsg {
 	return tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: x, Y: y}
 }
@@ -59,6 +60,32 @@ func TestClick_OnSkillMovesCursorTogglesAndRecomputes(t *testing.T) {
 	m4 := updated3.(model)
 	if m4.items[3].selected {
 		t.Error("expected a second click to deselect verify")
+	}
+}
+
+func TestClick_OnDisabledRowIsANoOp(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "g"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m2 := updated.(model)
+
+	before := m2.cursor
+	// index 4 is agent-only, disabled on generic (unsupported: no Body)
+	// - see fixtureRegistry/buildItems. It renders at
+	// y = listTopOffset+4, same layout math as
+	// TestClick_OnSkillMovesCursorTogglesAndRecomputes above.
+	if m2.items[4].skill.ID != "agent-only" || !m2.items[4].disabled {
+		t.Fatalf("expected items[4] to be the disabled agent-only row, got %+v", m2.items[4])
+	}
+
+	updated2, _ := m2.Update(leftClick(3, listTopOffset+4))
+	m3 := updated2.(model)
+
+	if m3.cursor != before {
+		t.Errorf("cursor moved to %d on a disabled-row click, want unchanged %d", m3.cursor, before)
+	}
+	if m3.items[4].selected {
+		t.Error("a click on a disabled row selected it, expected no selection change")
 	}
 }
 

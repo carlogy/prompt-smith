@@ -25,9 +25,10 @@ import (
 
 func hitTestItems() []item {
 	return []item{
-		{isHeader: true, category: "planning"}, // index 0
-		{skill: registry.Skill{ID: "s1"}},      // index 1
-		{skill: registry.Skill{ID: "s2"}},      // index 2
+		{isHeader: true, category: "planning"},            // index 0
+		{skill: registry.Skill{ID: "s1"}},                 // index 1
+		{skill: registry.Skill{ID: "s2"}},                 // index 2
+		{skill: registry.Skill{ID: "s3"}, disabled: true}, // index 3
 	}
 }
 
@@ -48,7 +49,8 @@ func TestItemAtPoint(t *testing.T) {
 		{"first list row is a header -> reject", 3, listTopOffset, 0, 0, false},
 		{"second list row -> s1", 3, listTopOffset + 1, 0, 1, true},
 		{"third list row -> s2", 3, listTopOffset + 2, 0, 2, true},
-		{"below the last item (blank) -> reject", 3, listTopOffset + 3, 0, 0, false},
+		{"fourth list row is disabled -> reject", 3, listTopOffset + 3, 0, 0, false},
+		{"below the last item (blank) -> reject", 3, listTopOffset + 4, 0, 0, false},
 		{"top border row -> reject", 3, 0, 0, 0, false},
 		{"title row -> reject", 3, 1, 0, 0, false},
 		{"click in the right pane (x beyond left pane) -> reject", 25, listTopOffset + 1, 0, 0, false},

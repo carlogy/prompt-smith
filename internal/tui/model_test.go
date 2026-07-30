@@ -54,22 +54,31 @@ func TestNewModel_FiltersGroupsAndStartsOnASelectableItem(t *testing.T) {
 	reg := fixtureRegistry()
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "test goal"})
 
-	var headers, selectable int
+	var headers, rows, disabled int
 	for _, it := range m.items {
 		if it.isHeader {
 			headers++
-		} else {
-			selectable++
+			continue
+		}
+		rows++
+		if it.disabled {
+			disabled++
 		}
 	}
 	if headers != 2 {
 		t.Errorf("headers = %d, want 2 (debugging, testing)", headers)
 	}
-	if selectable != 2 {
-		t.Errorf("selectable items = %d, want 2 (agent-only excluded: unsupported on generic)", selectable)
+	if rows != 3 {
+		t.Errorf("skill rows = %d, want 3 (diagnose, verify, agent-only)", rows)
+	}
+	if disabled != 1 {
+		t.Errorf("disabled rows = %d, want 1 (agent-only: unsupported on generic, greyed out rather than hidden)", disabled)
 	}
 	if m.items[m.cursor].isHeader {
 		t.Fatal("cursor started on a header item")
+	}
+	if m.items[m.cursor].disabled {
+		t.Fatal("cursor started on a disabled item")
 	}
 }
 
@@ -93,6 +102,30 @@ func TestModel_CursorNavigationSkipsHeaders(t *testing.T) {
 	m3 := updated2.(model)
 	if m3.cursor != m.cursor {
 		t.Errorf("cursor after up = %d, want back to %d", m3.cursor, m.cursor)
+	}
+}
+
+func TestModel_CursorCanLandOnADisabledRow(t *testing.T) {
+	// Cursor navigation is deliberately unchanged by disabled rows
+	// (prevSelectable/nextSelectable treat them like any other
+	// non-header row): a disabled row must stay reachable by keyboard
+	// so a user can see why it's unavailable, even though it can't be
+	// toggled (see TestModel_SpaceIsANoOpOnADisabledRow) or clicked
+	// (see TestClick_OnDisabledRowIsANoOp).
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+
+	// diagnose(1) -> down -> verify(3) -> down -> agent-only(4, disabled).
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated2, _ := updated.(model).Update(tea.KeyMsg{Type: tea.KeyDown})
+	m3 := updated2.(model)
+
+	got := m3.items[m3.cursor]
+	if got.isHeader {
+		t.Fatal("cursor landed on a header")
+	}
+	if got.skill.ID != "agent-only" || !got.disabled {
+		t.Fatalf("cursor item = %+v, want the disabled agent-only row", got)
 	}
 }
 
@@ -163,6 +196,32 @@ func TestModel_ToggleUpdatesSelectionAndPreview(t *testing.T) {
 	}
 	if strings.Contains(m3.preview, "diagnose body") {
 		t.Errorf("expected preview to no longer include diagnose's body, got:\n%s", m3.preview)
+	}
+}
+
+func TestModel_SpaceIsANoOpOnADisabledRow(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+
+	idx := -1
+	for i, it := range m.items {
+		if !it.isHeader && it.skill.ID == "agent-only" {
+			idx = i
+		}
+	}
+	if idx == -1 {
+		t.Fatal("agent-only not found in m.items")
+	}
+	if !m.items[idx].disabled {
+		t.Fatal("expected agent-only to be disabled on generic")
+	}
+	m.cursor = idx // land the cursor on the disabled row directly
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m2 := updated.(model)
+
+	if m2.items[idx].selected {
+		t.Error("expected space on a disabled row to be a no-op, but it got selected")
 	}
 }
 
@@ -333,13 +392,37 @@ func TestView_ContainsSkillsPreviewAndFooterHints(t *testing.T) {
 	}
 }
 
-func TestView_ExcludesUnsupportedSkill(t *testing.T) {
+// TestView_ShowsUnsupportedSkillGreyedOut proves an unsupported skill
+// stays in the list rather than being hidden: it renders with the
+// "[-]" marker (not "[ ]"/"[x]", so the unavailable-ness is never
+// carried by dimming alone) and is never selected, matching the web
+// UI's greyed-out-not-hidden treatment (index.html's applyTargetFilter).
+func TestView_ShowsUnsupportedSkillGreyedOut(t *testing.T) {
 	reg := fixtureRegistry()
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
 
 	got := stripANSI(m.View())
-	if strings.Contains(got, "agent-only") {
-		t.Errorf("expected agent-only (unsupported on generic) to be excluded from the view, got:\n%s", got)
+	if !strings.Contains(got, "agent-only") {
+		t.Fatalf("expected agent-only (unsupported on generic) to still appear in the view, got:\n%s", got)
+	}
+	if !strings.Contains(got, "[-] agent-only") {
+		t.Errorf("expected agent-only's row to carry the \"[-]\" disabled marker, got:\n%s", got)
+	}
+
+	idx := -1
+	for i, it := range m.items {
+		if !it.isHeader && it.skill.ID == "agent-only" {
+			idx = i
+		}
+	}
+	if idx == -1 {
+		t.Fatal("agent-only not found in m.items")
+	}
+	if !m.items[idx].disabled {
+		t.Error("expected agent-only's item to be disabled")
+	}
+	if m.items[idx].selected {
+		t.Error("expected agent-only's item to be unselected")
 	}
 }
 
@@ -372,9 +455,11 @@ func TestModel_WindowSizeMsgUpdatesDimensions(t *testing.T) {
 }
 
 func TestView_SkillListScrollsToKeepCursorVisible(t *testing.T) {
-	// fixtureRegistry on "generic" produces exactly 4 items:
-	// [header:debugging, diagnose, header:testing, verify]
-	// (agent-only is excluded: unsupported on generic). Height=11 ->
+	// fixtureRegistry on "generic" produces 5 items:
+	// [header:debugging, diagnose, header:testing, verify, agent-only]
+	// (agent-only is disabled: unsupported on generic - but still a
+	// row, so it doesn't affect the count or the ordering the rest of
+	// this test depends on). Height=11 ->
 	// raw contentHeight=8, which is below minRequiredContentHeight (the
 	// 9-row field stack - five 1-row fields plus the 4-row Examples
 	// field - plus targetHeight plus minSkillsHeight = 12), so it

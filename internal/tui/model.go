@@ -37,12 +37,18 @@ import (
 )
 
 // item is one row in the skill list: either a non-selectable category
-// header or a selectable skill.
+// header or a skill. A skill row is either selectable or, when the
+// current target doesn't support it (registry.SupportsTarget),
+// disabled: still shown (viewSkillList greys it out and marks it with
+// "[-]", matching the web UI's greyed-out-not-hidden treatment - see
+// index.html's applyTargetFilter) but never selected=true and never
+// toggleable (see updatePicker's Space case and handleLeftClick).
 type item struct {
 	isHeader bool
 	category string // set when isHeader
 	skill    registry.Skill
 	selected bool
+	disabled bool
 }
 
 // model is the Bubble Tea model for the skill picker + live preview.
@@ -100,11 +106,13 @@ type model struct {
 	result Result
 }
 
-// newModel builds the initial model: items filtered to what the target
-// actually supports (registry.SupportsTarget), grouped by category in
+// newModel builds the initial model: every skill grouped by category in
 // canonical order (registry.SortSkills), with initial.Skills
-// pre-selected. The cursor starts on the first selectable item, and the
-// preview reflects the pre-selected skills from the start.
+// pre-selected on whichever of them the target actually supports
+// (registry.SupportsTarget) - the rest render disabled rather than
+// being left out (see buildItems). The cursor starts on the first
+// non-header item, and the preview reflects the pre-selected skills
+// from the start.
 func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 	items := buildItems(reg, initial.Target, initial.Skills)
 	l := computeLayout(0, 0) // falls back to a usable default until the first WindowSizeMsg
@@ -199,6 +207,19 @@ func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 	return m
 }
 
+// buildItems builds one row per category header plus one row per
+// skill, in registry.SortSkills order. Every skill gets a row - even
+// one the target doesn't support - so the list stays stable as the
+// target changes rather than rows appearing/vanishing (matching the
+// web UI's greyed-out treatment); an unsupported skill's row is marked
+// disabled and its selected is force-set false regardless of whether
+// its id was in selected, which is what makes switching to a target
+// that can't use a previously-selected skill auto-uncheck it (this
+// runs again, and recomputePreview runs again after it, on every
+// target change - see updateTargetField). Because a category header is
+// only ever added while iterating an actual skill in that category
+// (never independently), no category can end up with a header and
+// zero rows under it.
 func buildItems(reg *registry.Registry, target string, selected []string) []item {
 	selectedSet := make(map[string]bool, len(selected))
 	for _, id := range selected {
@@ -211,14 +232,12 @@ func buildItems(reg *registry.Registry, target string, selected []string) []item
 	var items []item
 	lastCategory := ""
 	for _, sk := range skills {
-		if !reg.SupportsTarget(sk, target) {
-			continue
-		}
 		if sk.Category != lastCategory {
 			items = append(items, item{isHeader: true, category: sk.Category})
 			lastCategory = sk.Category
 		}
-		items = append(items, item{skill: sk, selected: selectedSet[sk.ID]})
+		disabled := !reg.SupportsTarget(sk, target)
+		items = append(items, item{skill: sk, selected: !disabled && selectedSet[sk.ID], disabled: disabled})
 	}
 	return items
 }
@@ -488,11 +507,14 @@ func (m model) updateExamplesField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // Left/Right cycle to the previous/next target id (alphabetical,
 // wrapping), and Esc blurs back to the skill list (matching every text
 // field's Esc behavior). A target change rebuilds items from scratch -
-// buildItems re-filters by registry.SupportsTarget, so a skill
-// unsupported on the new target drops out, matching the web UI - while
-// preserving which currently-selected skills are still supported, then
-// resets the cursor to the first selectable item and recomputes the
-// preview.
+// buildItems re-evaluates registry.SupportsTarget for every skill
+// against the new target, so a skill the new target can't use is
+// (re-)marked disabled and force-unselected, matching the web UI's
+// auto-uncheck-on-target-switch behavior - while preserving which
+// currently-selected skills are still supported, then resets the
+// cursor to the first selectable item and recomputes the preview so a
+// skill that just became unsupported can never linger in the built
+// prompt.
 func (m model) updateTargetField(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Esc):
@@ -564,7 +586,7 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor = pageSkills(m.items, m.cursor, m.skillsPageSize(), nextSelectable)
 		}
 	case key.Matches(msg, m.keys.Space):
-		if m.focus == focusSkills && !m.items[m.cursor].isHeader {
+		if m.focus == focusSkills && !m.items[m.cursor].isHeader && !m.items[m.cursor].disabled {
 			// Update has a value receiver, but m.items is a slice:
 			// copying the struct does NOT copy the backing array, so
 			// mutating m.items[i] in place would corrupt the model
@@ -658,7 +680,10 @@ func (m model) updateHelpOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleLeftClick maps a click to a skill row (via the same geometry the
 // view renders with) and, if it lands on a selectable item, moves the
 // cursor there and toggles it - the mouse equivalent of navigating with
-// the arrows and pressing space.
+// the arrows and pressing space. A click on a disabled row is a no-op
+// (itemAtPoint rejects it, same as a header row): the cursor doesn't
+// even move there, unlike keyboard navigation, which can land on a
+// disabled row deliberately (see prevSelectable/nextSelectable).
 func (m model) handleLeftClick(x, y int) model {
 	l := computeLayout(m.termWidth, m.termHeight)
 	leftPaneWidth := l.leftContentWidth + paneHOverhead
