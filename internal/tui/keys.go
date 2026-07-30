@@ -112,6 +112,19 @@ func withLabel(b key.Binding, keyLabel, desc string) key.Binding {
 func (k keyMap) ShortHelp() []key.Binding {
 	switch k.zone {
 	case focusSkills:
+		// PgUp/PgDn now also page the skill list (updatePicker), but
+		// that's deliberately NOT advertised here the way it is in
+		// focusPreview below: this row is already at the one-row
+		// footer's width budget at 80 columns (found via
+		// TestFooter_StaysOneRowAtNarrowWidth's own comment, and
+		// confirmed the hard way - adding "pgup/pgdn" here pushed the
+		// rendered row past 80 cols and ellipsized "esc cancel" clean
+		// off the end, breaking
+		// TestView_FooterAlwaysPresentRegardlessOfContent). FullHelp's
+		// PgUp entry (below) documents it instead, where there's no
+		// such width constraint - ShortHelp already omits other real
+		// bindings per zone this same way (e.g. CtrlC isn't listed
+		// here either, despite Esc/CtrlC both canceling).
 		return []key.Binding{
 			withLabel(k.Up, "\u2191/\u2193", "move"),
 			k.Space,
@@ -177,7 +190,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 			k.Write,
 		},
 		{
-			withLabel(k.PgUp, "pgup/pgdn", "page the preview"),
+			withLabel(k.PgUp, "pgup/pgdn", "page skill list / preview"),
 			withLabel(k.Esc, "esc", "cancel / unfocus"),
 			k.CtrlC,
 			k.Help,

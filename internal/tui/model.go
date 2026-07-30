@@ -547,9 +547,17 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor = nextSelectable(m.items, m.cursor)
 		}
 	case key.Matches(msg, m.keys.PgUp):
-		m.previewVP.PageUp()
+		if m.focus == focusPreview {
+			m.previewVP.PageUp()
+		} else {
+			m.cursor = pageSkills(m.items, m.cursor, m.skillsPageSize(), prevSelectable)
+		}
 	case key.Matches(msg, m.keys.PgDown):
-		m.previewVP.PageDown()
+		if m.focus == focusPreview {
+			m.previewVP.PageDown()
+		} else {
+			m.cursor = pageSkills(m.items, m.cursor, m.skillsPageSize(), nextSelectable)
+		}
 	case key.Matches(msg, m.keys.Space):
 		if m.focus == focusSkills && !m.items[m.cursor].isHeader {
 			// Update has a value receiver, but m.items is a slice:
@@ -745,6 +753,41 @@ const mouseWheelLines = 3
 // it's focused - finer-grained than a wheel tick or PgUp/PgDn, matching
 // common pager conventions (arrows = line-at-a-time, page keys = a page).
 const arrowScrollLines = 1
+
+// skillsPageSize returns how many rows PgUp/PgDn should page the skill
+// list by: the same visible-window height viewSkillList hands
+// visibleWindow (skillsHeight minus the "Skills" title row), so a
+// "page" here always matches what one screenful of the list actually
+// shows. Floored at 1 so a degenerate layout (shouldn't happen -
+// computeLayout enforces minSkillsHeight) still pages by something
+// rather than looping zero times.
+func (m model) skillsPageSize() int {
+	l := computeLayout(m.termWidth, m.termHeight)
+	page := l.skillsHeight - 1 // -1: the "Skills" title row (see viewSkillList's listHeight)
+	if page < 1 {
+		page = 1
+	}
+	return page
+}
+
+// pageSkills is PgUp/PgDn's skill-list equivalent of Up/Down: it
+// applies step (prevSelectable or nextSelectable) n times instead of
+// once. Deliberately routed through those helpers rather than jumping
+// straight to cursor+-n and only then correcting for headers: both
+// helpers already are a no-op once they run off either end of items,
+// so n repeated applications inherit that boundary behavior for free
+// (no wrap, no landing past the last/first item) and can never stop on
+// a header, matching single-step Up/Down exactly. That correctness
+// holds no matter what "selectable" ends up meaning later - e.g. once
+// some skill rows become disabled - without this needing a rewrite,
+// which is the whole reason to go through step here instead of raw
+// index arithmetic.
+func pageSkills(items []item, cursor, n int, step func([]item, int) int) int {
+	for i := 0; i < n; i++ {
+		cursor = step(items, cursor)
+	}
+	return cursor
+}
 
 func prevSelectable(items []item, from int) int {
 	for i := from - 1; i >= 0; i-- {

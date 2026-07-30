@@ -325,7 +325,7 @@ func TestView_ContainsSkillsPreviewAndFooterHints(t *testing.T) {
 		"diagnose", "verify", // skills listed
 		"DEBUGGING", "TESTING", // category headers
 		"diagnose body",                              // live preview content
-		"enter", "copy", "write", "cancel", "select", // footer hints (skills-focused; pgup/pgdn is preview-only as of P3d)
+		"enter", "copy", "write", "cancel", "select", // footer hints (skills-focused; pgup/pgdn pages the skill list too now, but isn't advertised here - see keys.go's ShortHelp comment)
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("View() missing %q, got:\n%s", want, got)

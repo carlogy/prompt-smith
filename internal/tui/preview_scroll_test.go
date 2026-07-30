@@ -62,7 +62,10 @@ func TestPreview_PageDownScrollsWhenContentOverflows(t *testing.T) {
 		t.Errorf("expected line8 (near the end) not to be visible before scrolling, got:\n%s", stripANSI(m2.View()))
 	}
 
-	cur := m2
+	// PgDown is focus-aware (updatePicker): it pages the skill list
+	// unless focusPreview has focus, so it must be focused here.
+	focused, _ := m2.changeFocus(focusPreview)
+	cur := focused.(model)
 	for i := 0; i < 10 && !cur.previewVP.AtBottom(); i++ { // generously more than needed
 		updated, _ := cur.Update(tea.KeyMsg{Type: tea.KeyPgDown})
 		cur = updated.(model)
@@ -116,6 +119,11 @@ func TestPreview_ScrollResetsToTopWhenSelectionChanges(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m2 := updated.(model)
 
+	// PgDown is focus-aware (updatePicker): focus the preview first so
+	// it pages the preview rather than the skill list.
+	focused, _ := m2.changeFocus(focusPreview)
+	m2 = focused.(model)
+
 	updated2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyPgDown})
 	m3 := updated2.(model)
 	if m3.previewVP.YOffset == 0 {
@@ -124,6 +132,10 @@ func TestPreview_ScrollResetsToTopWhenSelectionChanges(t *testing.T) {
 
 	// The cursor sits on longskill (the only selectable item); toggling
 	// it off deselects it, shrinking the preview - a real recompute.
+	// Space only toggles while focusSkills has focus (updatePicker), so
+	// switch back before pressing it.
+	backToSkills, _ := m3.changeFocus(focusSkills)
+	m3 = backToSkills.(model)
 	updated3, _ := m3.Update(tea.KeyMsg{Type: tea.KeySpace})
 	m4 := updated3.(model)
 	if m4.previewVP.YOffset != 0 {
@@ -137,6 +149,11 @@ func TestPreview_PageDownDoesNotMutateThePriorModelsScrollOffset(t *testing.T) {
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m2 := updated.(model)
+
+	// PgDown is focus-aware (updatePicker): focus the preview first so
+	// it pages the preview rather than the skill list.
+	focused, _ := m2.changeFocus(focusPreview)
+	m2 = focused.(model)
 
 	updated2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyPgDown})
 	m3 := updated2.(model)
