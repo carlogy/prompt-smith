@@ -25,6 +25,7 @@ import (
 	"github.com/carlogy/prompt-smith/internal/naming"
 	"github.com/carlogy/prompt-smith/internal/prompt"
 	"github.com/carlogy/prompt-smith/internal/prompthl"
+	"github.com/carlogy/prompt-smith/internal/promptlint"
 )
 
 // previewData is what the preview partial (assets/templates/preview.html)
@@ -33,6 +34,15 @@ type previewData struct {
 	Lines    []previewLine
 	Error    string
 	Filename string // suggested Download filename - see naming.SuggestFilename
+	// Findings holds every promptlint.Finding for the built prompt,
+	// rendered as its own list item in preview.html. This deliberately
+	// does NOT collapse the three pure-absence findings (no role, no
+	// output_format, no examples) into one line the way the CLI's
+	// warnLintFindings (internal/cli/generate.go) does: that collapse
+	// exists because a terminal's stderr hint is space-constrained,
+	// and this pane isn't - it has room to list every finding on its
+	// own line.
+	Findings []promptlint.Finding
 }
 
 // previewLine is one line of a built prompt plus how the preview
@@ -89,7 +99,13 @@ func (app *application) handlePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, buildErr := prompt.Build(app.reg, prompt.Inputs{
+	// Hoisted into a local rather than built inline for prompt.Build
+	// and then separately again for promptlint.Check below: both calls
+	// have to see the identical Inputs value, or the lint findings
+	// could describe a prompt that isn't the one actually rendered -
+	// the same reasoning behind the analogous "in" local in
+	// internal/cli/generate.go's runGenerate.
+	in := prompt.Inputs{
 		Target:       r.FormValue("target"),
 		Skills:       r.Form["skills"],
 		Goal:         r.FormValue("goal"),
@@ -104,13 +120,24 @@ func (app *application) handlePreview(w http.ResponseWriter, r *http.Request) {
 		// "examples" key to read - SplitExamples does the dividing
 		// prompt.Inputs.Examples ([]string) actually needs.
 		Examples: prompt.SplitExamples(r.FormValue("examples")),
-	})
+	}
+
+	out, buildErr := prompt.Build(app.reg, in)
 
 	data := previewData{Filename: naming.SuggestFilename(r.FormValue("goal"), time.Now())}
 	if buildErr != nil {
 		data.Error = buildErr.Error()
 	} else {
 		data.Lines = highlightPrompt(out)
+		// Findings are populated only on a successful build and only
+		// when hints aren't suppressed. On a build error, the template's
+		// {{if .Error}} branch owns the whole pane (see preview.html) -
+		// stacking advisory suggestions underneath a hard error would be
+		// noise when the user simply hasn't picked valid values yet, not
+		// useful context for fixing that error.
+		if !app.noHints {
+			data.Findings = promptlint.Check(app.reg, in)
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

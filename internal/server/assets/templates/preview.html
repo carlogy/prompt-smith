@@ -2,6 +2,24 @@
 <p class="text-sm text-red-700 dark:text-red-400" role="alert">Error: {{.Error}}</p>
 {{else if .Lines}}
 <pre id="preview-text" data-filename="{{.Filename}}" class="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-slate-800 dark:text-slate-100">{{range $i, $l := .Lines}}{{if $i}}{{"\n"}}{{end}}{{if $l.IsOpen}}<span class="text-cornflower-600 dark:text-cornflower-300">{{$l.Text}}</span>{{else if $l.IsClose}}<span class="text-slate-500 dark:text-slate-400">{{$l.Text}}</span>{{else}}{{$l.Text}}{{end}}{{end}}</pre>
+{{if .Findings}}
+<!-- Deliberately no role="alert" and no role="status" on this block.
+     The form posts here on hx-trigger="input changed delay:300ms"
+     (see index.html), so a live region here would re-announce every
+     suggestion to a screen-reader user on essentially every
+     keystroke. These are advisory suggestions, not errors - the
+     role="alert" above is correct for an actual build error and must
+     stay exactly as it is - so this block is reached through normal
+     navigation instead, the same as any other static page content. -->
+<div id="preview-hints" class="mt-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+	<h2 class="text-sm font-medium text-slate-700 dark:text-slate-200">Suggestions</h2>
+	<ul class="mt-1.5 list-disc space-y-1 pl-5 text-sm text-slate-500 dark:text-slate-400">
+		{{range .Findings}}
+		<li data-rule="{{.Rule}}">{{.Message}}</li>
+		{{end}}
+	</ul>
+</div>
+{{end}}
 {{else}}
 <p class="text-sm text-slate-500 dark:text-slate-400">Enter a goal to see your prompt…</p>
 {{end}}

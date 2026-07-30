@@ -67,9 +67,9 @@ registry of skills and per-target rendering rules.`,
   promptsmith -t opencode -s diagnose,verify "fix the flaky checkout test"
   promptsmith -t gemini-cli -s diagnose "fix the flaky checkout test"
   promptsmith -s diagnose -g "fix the flaky checkout test"  # goal via flag
-  promptsmith -s diagnose -c "no new deps" "fix the bug"    # constraints
-  promptsmith -s diagnose -y "fix the bug"                  # copy to clipboard
-  promptsmith -p code-review "fix the bug"                  # reuse a saved preset
+  promptsmith -s diagnose -c "no new deps" "fix the flaky checkout test"    # constraints
+  promptsmith -s diagnose -y "fix the flaky checkout test"                  # copy to clipboard
+  promptsmith -p code-review "fix the flaky checkout test"                  # reuse a saved preset
   promptsmith --tui                                         # interactive picker`,
 		Version: buildVersion(), // enables the --version flag cobra provides automatically
 		Args:    cobra.ArbitraryArgs,

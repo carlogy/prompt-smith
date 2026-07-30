@@ -264,6 +264,14 @@ func TestHandlePreview_ExamplesFieldSplitsIntoMultipleExampleBlocks(t *testing.T
 // empty (or whitespace-only) examples textarea omits the whole
 // <examples> wrapper, mirroring prompt.TestBuild_ExamplesOmittedWhenEmpty
 // through the HTTP path.
+//
+// Asserts on the escaped "&lt;examples&gt;" tag specifically, not the
+// bare substring "examples": a blank examples field also fires
+// promptlint's no-examples finding (see Task 2/3), whose own message
+// text ("No examples given; ...") legitimately contains the word
+// "examples" - checking for the tag is what keeps this test asserting
+// on the <examples> wrapper it's actually named for, rather than
+// colliding with that unrelated, correct finding text.
 func TestHandlePreview_EmptyExamplesRendersNoExamplesSection(t *testing.T) {
 	app := testApp()
 	form := url.Values{
@@ -278,7 +286,7 @@ func TestHandlePreview_EmptyExamplesRendersNoExamplesSection(t *testing.T) {
 	app.routes().ServeHTTP(rec, req)
 
 	body := rec.Body.String()
-	if strings.Contains(body, "examples") {
+	if strings.Contains(body, "&lt;examples&gt;") {
 		t.Errorf("expected no <examples> section for a blank examples field, got:\n%s", body)
 	}
 }
@@ -316,5 +324,146 @@ func TestHandlePreview_ExamplesFieldNormalizesCRLF(t *testing.T) {
 	// CRLF normalization didn't run before splitting.
 	if strings.Contains(body, "\r") {
 		t.Errorf("fragment contains an unnormalized carriage return, got:\n%q", body)
+	}
+}
+
+// TestHandlePreview_GoalOnlyListsEveryFindingUncollapsed proves the
+// web UI's deliberate divergence from the CLI (see previewData's
+// Findings comment in preview.go): a goal-only prompt trips all three
+// pure-absence rules (no-role, no-output-format, no-examples), and
+// unlike internal/cli/generate.go's warnLintFindings - which collapses
+// those three into a single stderr line - this pane renders each one
+// as its own data-rule="..." list item.
+func TestHandlePreview_GoalOnlyListsEveryFindingUncollapsed(t *testing.T) {
+	app := testApp()
+	form := url.Values{
+		"target": {"generic"},
+		"goal":   {"fix the flaky checkout test"},
+	}
+	req := newLocalRequest(http.MethodPost, "/preview", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `id="preview-hints"`) {
+		t.Errorf("fragment missing the findings block, got:\n%s", body)
+	}
+	for _, rule := range []string{"no-role", "no-output-format", "no-examples"} {
+		want := `data-rule="` + rule + `"`
+		if !strings.Contains(body, want) {
+			t.Errorf("fragment missing %s (the web UI must not collapse these), got:\n%s", want, body)
+		}
+	}
+}
+
+// TestHandlePreview_WellFormedPromptRendersNoFindingsBlock proves a
+// clean prompt (role, output_format, 3+ examples, a goal at or over
+// minGoalChars) renders no #preview-hints block at all - the
+// {{if .Findings}} guard in preview.html.
+func TestHandlePreview_WellFormedPromptRendersNoFindingsBlock(t *testing.T) {
+	app := testApp()
+	form := url.Values{
+		"target":       {"generic"},
+		"goal":         {"fix the flaky checkout test"},
+		"role":         {"a senior engineer"},
+		"outputFormat": {"a unified diff"},
+		"examples":     {"input: 1 -> output: one\n---\ninput: 2 -> output: two\n---\ninput: 3 -> output: three"},
+	}
+	req := newLocalRequest(http.MethodPost, "/preview", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if strings.Contains(body, `id="preview-hints"`) {
+		t.Errorf("expected no findings block for a well-formed prompt, got:\n%s", body)
+	}
+}
+
+// TestHandlePreview_BuildErrorRendersNoFindingsBlock proves the
+// template's {{if .Error}} branch owns the pane exclusively: a build
+// error must show the existing role="alert" error and must NOT also
+// render #preview-hints underneath it (see handlePreview's own comment
+// on why findings are suppressed on buildErr != nil).
+func TestHandlePreview_BuildErrorRendersNoFindingsBlock(t *testing.T) {
+	app := testApp()
+	form := url.Values{
+		"target": {"generic"},
+		"skills": {"does-not-exist"},
+		"goal":   {"x"},
+	}
+	req := newLocalRequest(http.MethodPost, "/preview", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `role="alert"`) {
+		t.Errorf("fragment missing the error alert, got:\n%s", body)
+	}
+	if strings.Contains(body, `id="preview-hints"`) {
+		t.Errorf("expected no findings block alongside a build error, got:\n%s", body)
+	}
+}
+
+// TestHandlePreview_NoHintsSuppressesFindingsBlock proves
+// application.noHints (set from server.Options.NoHints, itself set
+// from the CLI's --no-hints flag - see server.Options and
+// internal/cli/generate.go's runUI) suppresses the findings block
+// entirely while leaving the built prompt untouched.
+func TestHandlePreview_NoHintsSuppressesFindingsBlock(t *testing.T) {
+	app := testApp()
+	app.noHints = true
+	form := url.Values{
+		"target": {"generic"},
+		"goal":   {"fix the flaky checkout test"},
+	}
+	req := newLocalRequest(http.MethodPost, "/preview", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "fix the flaky checkout test") {
+		t.Errorf("expected the prompt to still render normally under --no-hints, got:\n%s", body)
+	}
+	if strings.Contains(body, `id="preview-hints"`) {
+		t.Errorf("expected --no-hints to suppress the findings block, got:\n%s", body)
+	}
+}
+
+// TestHandlePreview_FindingsBlockHasNoLiveRegionRole pins the
+// accessibility decision recorded in preview.html's own comment above
+// #preview-hints: the form posts on hx-trigger="input changed
+// delay:300ms", so an aria-live role here (role="alert" or
+// role="status") would re-announce every suggestion to a screen-reader
+// user on essentially every keystroke. This test exists so a future
+// change adding one back has to consciously break a test, not
+// silently regress.
+func TestHandlePreview_FindingsBlockHasNoLiveRegionRole(t *testing.T) {
+	app := testApp()
+	form := url.Values{
+		"target": {"generic"},
+		"goal":   {"fix the flaky checkout test"},
+	}
+	req := newLocalRequest(http.MethodPost, "/preview", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	hintsStart := strings.Index(body, `id="preview-hints"`)
+	if hintsStart == -1 {
+		t.Fatalf("fragment missing the findings block, got:\n%s", body)
+	}
+	hintsBlock := body[hintsStart:]
+	if strings.Contains(hintsBlock, `role="alert"`) || strings.Contains(hintsBlock, `role="status"`) {
+		t.Errorf("findings block must not carry a live-region role, got:\n%s", hintsBlock)
 	}
 }

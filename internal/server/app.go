@@ -41,6 +41,14 @@ type application struct {
 	tmpl    *template.Template
 	static  http.Handler
 	initial prompt.Inputs // seeds the page's form - see --ui's flag seeding in cli
+	// noHints mirrors Options.NoHints (server.go): when true,
+	// handlePreview (preview.go) skips promptlint.Check entirely, the
+	// web UI's equivalent of the CLI's warnLintFindings noHints
+	// short-circuit. Left at its zero value (false) by newApplication
+	// itself and set by Serve once Options is in scope - see Serve's
+	// own comment on why it's assigned there rather than threaded
+	// through newApplication's parameter list.
+	noHints bool
 }
 
 // newApplication builds an application. A nil logger defaults to

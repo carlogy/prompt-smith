@@ -26,12 +26,15 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/atotto/clipboard"
 	"github.com/spf13/cobra"
 
 	"github.com/carlogy/prompt-smith/internal/preset"
 	"github.com/carlogy/prompt-smith/internal/prompt"
+	"github.com/carlogy/prompt-smith/internal/promptlint"
 	"github.com/carlogy/prompt-smith/internal/registry"
 	"github.com/carlogy/prompt-smith/internal/server"
 	"github.com/carlogy/prompt-smith/internal/tui"
@@ -73,6 +76,7 @@ type generateOptions struct {
 	out          string
 	quick        bool
 	tui          bool
+	noHints      bool
 	ui           bool
 	port         int
 	noBrowser    bool
@@ -103,6 +107,7 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 	cmd.Flags().StringVarP(&opts.out, "out", "o", "", "write the prompt to this file instead of stdout")
 	cmd.Flags().BoolVarP(&opts.quick, "quick", "q", false, "never launch the interactive picker, even in a terminal")
 	cmd.Flags().BoolVar(&opts.tui, "tui", false, "launch the interactive picker even if --skills was given")
+	cmd.Flags().BoolVar(&opts.noHints, "no-hints", false, "suppress prompt-quality hints on stderr")
 	cmd.Flags().BoolVar(&opts.ui, "ui", false, "launch the local web UI in your browser")
 	cmd.Flags().IntVar(&opts.port, "port", 0, "port for --ui to bind (default: an OS-assigned free port)")
 	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "with --ui, don't automatically open a browser")
@@ -284,7 +289,11 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 		return errEmptyGoal
 	}
 
-	out, err := prompt.Build(reg, prompt.Inputs{
+	// Hoisted into a local rather than built twice (once for
+	// prompt.Build, once for promptlint.Check below): those two calls
+	// have to see the identical Inputs value, or the lint findings
+	// could describe a prompt that isn't the one actually delivered.
+	in := prompt.Inputs{
 		Target:       opts.target,
 		Skills:       opts.skills,
 		Goal:         goal,
@@ -293,7 +302,9 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 		Role:         opts.role,
 		OutputFormat: opts.outputFormat,
 		Examples:     opts.examples,
-	})
+	}
+
+	out, err := prompt.Build(reg, in)
 	if err != nil {
 		return err
 	}
@@ -307,6 +318,8 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 	if len(opts.skills) == 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: no --skills given; generating a goal-only prompt (pass --skills, or run in a terminal without --quick for the interactive picker)")
 	}
+
+	warnLintFindings(cmd.ErrOrStderr(), reg, in, opts.noHints)
 
 	return deliver(cmd, opts, out)
 }
@@ -367,6 +380,140 @@ func warnStraySkillArgs(w io.Writer, reg *registry.Registry, skills, args []stri
 	fmt.Fprintf(w, "promptsmith: warning: parsed as goal text, not skills: %s; --skills takes a comma-separated list with no spaces (e.g. -s a,b,c)\n", strings.Join(strays, ", "))
 }
 
+// warnLintFindings renders promptlint.Check's advisory findings for in
+// as hints on w, unless noHints suppresses all of it. Mirrors
+// warnStraySkillArgs's shape - a raw io.Writer rather than a
+// *cobra.Command - for the same reason: both call sites (runGenerate,
+// runInteractive) already hold a plain io.Writer (cmd.ErrOrStderr())
+// and passing the whole *cobra.Command through would be a wider
+// dependency than either function needs.
+//
+// Three of promptlint's seven RuleIDs - RuleNoRole,
+// RuleNoOutputFormat, and RuleNoExamples - are "pure absence"
+// findings: each one only ever says "you left X out". They're
+// collapsed into a single line below instead of one line apiece,
+// because without the collapse the single simplest command a
+// first-time user runs - a bare `promptsmith "some goal"` - trips all
+// three simultaneously, and would print three lines of unsolicited
+// advice stacked on top of the existing "no --skills given" note
+// (runGenerate's own hint, not a lint finding) that already fires on
+// that same command: four lines of hints on someone's very first
+// invocation. These three rules all answer one question - "what did
+// you leave out?" - and read naturally as one joined sentence,
+// whereas every other rule (negative constraints, short goal,
+// oversized prompt) is a distinct judgment that needs its own
+// explanation and earns its own line.
+//
+// The web UI deliberately does NOT collapse these three: it has room
+// to list each finding on its own. This per-surface divergence has
+// direct precedent in this repo: internal/fielddesc's package comment
+// keeps the CLI's flag help and the TUI's placeholders as their own,
+// terser, local strings "since those have different space budgets and
+// voices" - the same reasoning applies here, one level up, between
+// the CLI's compact stderr hints and the web UI's roomier findings
+// list.
+func warnLintFindings(w io.Writer, reg *registry.Registry, in prompt.Inputs, noHints bool) {
+	if noHints {
+		return
+	}
+	findings := promptlint.Check(reg, in)
+
+	// First pass: collect the missing field names in the order
+	// Check itself returns them (role, then output_format, then
+	// examples - see promptlint.Check's documented ordering
+	// contract), so the collapsed sentence below always lists them in
+	// that fixed order no matter which subset fired.
+	var missingFields []string
+	for _, f := range findings {
+		switch f.Rule {
+		case promptlint.RuleNoRole:
+			missingFields = append(missingFields, "role")
+		case promptlint.RuleNoOutputFormat:
+			missingFields = append(missingFields, "output_format")
+		case promptlint.RuleNoExamples:
+			missingFields = append(missingFields, "examples")
+		}
+	}
+
+	// Second pass: render in Check's own order, emitting each
+	// non-collapsible finding as its own line as it's reached, and
+	// emitting the one collapsed line at the position of the FIRST
+	// collapsible finding encountered. This single pass is only
+	// correct because RuleNoRole, RuleNoOutputFormat, and
+	// RuleNoExamples are contiguous in Check's documented return order
+	// (negative-constraints, no-role, no-output_format, examples,
+	// short-goal, oversized-prompt) - if Check is ever reordered so
+	// the three are no longer adjacent, this loop would need to become
+	// two passes instead of relying on "first encountered" as a proxy
+	// for "the group's position".
+	collapsedPrinted := false
+	for _, f := range findings {
+		switch f.Rule {
+		case promptlint.RuleNoRole, promptlint.RuleNoOutputFormat, promptlint.RuleNoExamples:
+			if !collapsedPrinted {
+				fmt.Fprintln(w, collapsedAbsenceHint(missingFields))
+				collapsedPrinted = true
+			}
+		default:
+			fmt.Fprintf(w, "promptsmith: hint: %s\n", lowercaseFirstRune(f.Message))
+		}
+	}
+}
+
+// lowercaseFirstRune returns s with only its first rune lowercased;
+// every other byte, including any digit or quoted identifier further
+// in, is left untouched.
+//
+// This exists on the CLI side specifically, not as a change to
+// promptlint.Finding.Message itself: Message is documented as a
+// complete, capitalized, standalone sentence, which is exactly right
+// when the web UI renders it as its own <li> (see previewData's
+// Findings field in internal/server/preview.go) - a capitalized
+// sentence there needs no adjustment. It's only the CLI's stderr
+// rendering that inlines the message after a lowercase "promptsmith:
+// hint: " prefix, where every other stderr line in this repo continues
+// in lowercase (see errEmptyGoal, warnStraySkillArgs, the
+// no-skills note above, copyAndConfirm's confirmation, and Go's own
+// convention for error/log strings). One canonical Message, adjusted
+// only by the one surface whose voice needs it - the same
+// per-surface-voice principle recorded in internal/fielddesc's package
+// comment for the CLI/TUI split.
+//
+// Implemented with utf8.DecodeRuneInString rather than lowercasing
+// s[0] as a byte: byte-indexing would corrupt a multibyte leading
+// rune. No current Finding.Message starts with one, but this function
+// has no way to assume that stays true.
+func lowercaseFirstRune(s string) string {
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
+		return s
+	}
+	return string(unicode.ToLower(r)) + s[size:]
+}
+
+// collapsedAbsenceHint renders the single line naming which of role,
+// output_format, and examples were missing, in that fixed order.
+// Joined with a natural-language "or" (and an Oxford comma once
+// there are three), with singular/plural agreement on "it"/"them",
+// and pointing at the docs the same way presets.go's
+// noPresetsGuidance does for the "Presets" section.
+func collapsedAbsenceHint(fields []string) string {
+	var joined string
+	switch len(fields) {
+	case 1:
+		joined = fields[0]
+	case 2:
+		joined = fields[0] + " or " + fields[1]
+	default:
+		joined = strings.Join(fields[:len(fields)-1], ", ") + ", or " + fields[len(fields)-1]
+	}
+	pronoun := "it"
+	if len(fields) > 1 {
+		pronoun = "them"
+	}
+	return fmt.Sprintf(`promptsmith: hint: no %s given; adding %s measurably improves output (see the "Hints" section of README.md)`, joined, pronoun)
+}
+
 // validateUIFlags enforces --ui's flag relationships: --port and
 // --no-browser only make sense alongside --ui, and --ui itself is
 // mutually exclusive with the other ways of choosing what happens to
@@ -414,6 +561,7 @@ func runUI(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, go
 	return runServerFunc(ctx, reg, server.Options{
 		Port:      opts.port,
 		NoBrowser: opts.noBrowser,
+		NoHints:   opts.noHints,
 		Stdout:    cmd.OutOrStdout(),
 		// Seeds the page's form, exactly like --tui pre-populates the
 		// picker from the same flags (see runInteractive).
@@ -458,6 +606,25 @@ func runInteractive(cmd *cobra.Command, reg *registry.Registry, opts *generateOp
 	if err != nil {
 		return err
 	}
+
+	// Linted against result.Inputs, NOT opts: the picker lets the user
+	// edit role/output_format/examples/etc. after they were seeded
+	// from opts, so opts is stale the moment the picker returns.
+	// Linting opts here would silently report on what the user typed
+	// on the command line rather than on what they actually confirmed.
+	//
+	// This runs on stderr after the TUI session ends rather than
+	// inside the TUI itself, because the TUI has nowhere to put it
+	// today: its footer is a single line fully occupied by
+	// per-focus-zone keybind help, and errors are currently inlined
+	// into the preview viewport's own content rather than shown in a
+	// dedicated region. Giving hints a real home there would need a
+	// variable-height region, which would force a signature change on
+	// computeLayout - deliberately pure today, and run before any
+	// model exists. That's Phase 5's job (which already plans to
+	// replace the inlined preview error with a styled banner); this
+	// stderr emission is what keeps TUI users covered until then.
+	warnLintFindings(cmd.ErrOrStderr(), reg, result.Inputs, opts.noHints)
 
 	switch result.Action {
 	case tui.ActionCopy:

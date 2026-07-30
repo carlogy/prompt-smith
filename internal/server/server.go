@@ -42,6 +42,14 @@ type Options struct {
 	Port int
 	// NoBrowser skips the best-effort browser auto-open.
 	NoBrowser bool
+	// NoHints mirrors the CLI's --no-hints flag: it suppresses this
+	// server's promptlint findings (see previewData.Findings in
+	// preview.go) the same way --no-hints suppresses warnLintFindings's
+	// stderr output in internal/cli/generate.go. Without this, --ui
+	// would give --no-hints one meaning on the command line and a
+	// silent no-op under the web UI - the same flag would stop meaning
+	// "I don't want hints" depending on which mode it's combined with.
+	NoHints bool
 	// Initial seeds the page's form (target/skills/goal/etc.) - see
 	// --ui's flag seeding in cli, which populates this the same way
 	// --tui pre-populates the picker.
@@ -93,6 +101,15 @@ func Serve(ctx context.Context, reg *registry.Registry, opts Options) error {
 	if err != nil {
 		return err
 	}
+	// Set directly on app rather than threaded through newApplication
+	// as a parameter (the way opts.Initial is): newApplication is also
+	// called by this package's own tests via a small fixture registry
+	// (see testAppWithInitial in testhelpers_test.go), and those call
+	// sites have no Options value to draw a NoHints from. Assigning it
+	// here, once Options is already in scope, avoids changing that
+	// constructor's signature for every existing caller just to plumb
+	// one field only Serve itself has.
+	app.noHints = opts.NoHints
 	srv := &http.Server{
 		Handler:           app.routes(),
 		ReadHeaderTimeout: 5 * time.Second,

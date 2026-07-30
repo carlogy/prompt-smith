@@ -150,8 +150,8 @@ promptsmith -t claude-code -s diagnose,verify \
   "fix the flaky checkout test"
 
 # Copy to the clipboard, or write to a file, instead of stdout:
-promptsmith -s diagnose -y "fix the bug"
-promptsmith -s diagnose -o ~/prompts/fix-the-bug.txt "fix the bug"
+promptsmith -s diagnose -y "fix the flaky checkout test"
+promptsmith -s diagnose -o ~/prompts/fix-the-flaky-checkout-test.txt "fix the flaky checkout test"
 
 # No -s, no --quick, run from a terminal: launches an interactive
 # skill picker with a live preview instead of requiring flags.
@@ -191,6 +191,7 @@ The root command generates a prompt; everything else is a subcommand.
 | `--out` | `-o` | Write the prompt to this file instead of stdout (accepts `~`/`~user`; missing parent directories are created). |
 | `--quick` | `-q` | Never launch the interactive picker, even in a terminal. |
 | `--tui` | | Launch the interactive picker even if `--skills` was given. |
+| `--no-hints` | | Suppress prompt-quality hints on stderr (see [Hints](#hints)). |
 | `--ui` | | Launch the local web UI in your browser. |
 | `--port` | | Port for `--ui` to bind (default: an OS-assigned free port). |
 | `--no-browser` | | With `--ui`, don't automatically open a browser. |
@@ -379,7 +380,7 @@ plain "is it the default?" check couldn't tell "you didn't pass
 key the preset file simply omits leaves that flag's own default alone.
 
 Because a preset's `skills` land in exactly the place `--skills` would,
-`promptsmith -p mypreset "fix the bug"` generates straight to stdout
+`promptsmith -p mypreset "fix the flaky checkout test"` generates straight to stdout
 instead of opening the [interactive picker](#interactive-picker) - the
 picker only auto-launches when no skills were selected by any means, and
 a preset's skills count the same as typed ones for that check.
@@ -454,6 +455,45 @@ This generates exactly as if `-t claude-code -s diagnose,verify -r
 typed alongside the goal - and any of those four flags passed
 explicitly on top would override the matching preset value, field by
 field.
+
+## Hints
+
+Hints are advisory prompt-quality suggestions - promptsmith noticing
+something like "you didn't give this prompt a role" and saying so.
+They're printed to **stderr only**, so stdout stays clean for piping
+(`promptsmith ... | pbcopy`, writing to a file, etc.), and they
+**never affect the exit code**: a hint is a suggestion, not a failure,
+and the prompt generates exactly the same either way.
+
+Six rules fire independently, each on its own line (except three that
+share one collapsed line on the CLI - see below):
+
+| Rule | Fires when |
+|---|---|
+| Negative constraints | Every clause in `--constraints` is phrased as a prohibition ("don't", "never", "avoid", ...) rather than saying what to do instead. |
+| No role | `--role` was never given. |
+| No output_format | `--output-format` was never given. |
+| Few examples | Fewer than 3 `--example` entries were given (3-5 is recommended - see `--example`'s own row above). |
+| Short goal | The goal, trimmed, is fewer than 15 characters. |
+| Oversized prompt | On a target that inlines skill bodies (like `generic`), the fully assembled prompt exceeds 8000 characters. |
+
+Character counts are used deliberately throughout - **no token
+estimation is performed anywhere in this project.**
+
+On the command line, three of these rules - no role, no
+output_format, few/no examples - all answer the same question ("what
+did you leave out?"), so they're collapsed into a single stderr line
+instead of three separate ones:
+
+```
+promptsmith: hint: no role, output_format, or examples given; adding them measurably improves output (see the "Hints" section of README.md)
+```
+
+Every other rule prints its own line. Hints also appear in the `--ui`
+web preview, listed individually and never collapsed - the browser
+pane has room that a terminal doesn't. `--no-hints` suppresses hints
+everywhere: on the command line, in the interactive picker, and in the
+web UI.
 
 ## Development
 

@@ -66,7 +66,7 @@ func newPresetsCmd() *cobra.Command {
 		Use:   "presets",
 		Short: "List saved presets (see -p/--preset)",
 		Example: `  promptsmith presets
-  promptsmith -p code-review "fix the bug"`,
+  promptsmith -p code-review "fix the flaky checkout test"`,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
