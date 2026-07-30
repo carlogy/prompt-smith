@@ -82,4 +82,45 @@ var (
 	helpKeyStyle       = lipgloss.NewStyle().Faint(true)
 	helpDescStyle      = lipgloss.NewStyle().Faint(true)
 	helpSeparatorStyle = lipgloss.NewStyle().Faint(true)
+
+	// errorColor is the preview pane's error banner red, picked the
+	// same asymmetric way activeColor picks its cyan above: bright red
+	// "9" on a dark terminal (this UI's default rendering target),
+	// the plain ANSI-16 counterpart "1" on light, where the bright
+	// code would be harder to read against a pale background. Kept as
+	// its own color (not reused from elsewhere in this file) because
+	// nothing else in this package means "error" - activeColor means
+	// "focused", a distinct concept that happens to share no state
+	// with this one.
+	errorColor = lipgloss.AdaptiveColor{Light: "1", Dark: "9"}
+	// errorBannerStyle renders recomputePreview's build-error banner
+	// (model.go), replacing the old plain "error: " + err.Error()
+	// string that used to go straight into the preview viewport with
+	// no styling at all.
+	errorBannerStyle = lipgloss.NewStyle().Bold(true).Foreground(errorColor)
+
+	// hintsHeadingStyle/hintsBodyStyle render recomputePreview's
+	// advisory promptlint findings block (see hints.go's renderHints),
+	// shown above the built prompt on a successful build. hintsBodyStyle
+	// reuses footerStyle's Faint(true) treatment rather than a new
+	// literal - both mark text as secondary/advisory, never the primary
+	// thing on screen - keeping that "advisory" visual vocabulary to
+	// one look across the whole package.
+	hintsHeadingStyle = lipgloss.NewStyle().Bold(true)
+	hintsBodyStyle    = footerStyle
+
+	// noCursorLineStyle neutralizes bubbles/textarea's default
+	// CursorLine background tint (textarea.go's DefaultStyles:
+	// Background(AdaptiveColor{Light: "255", Dark: "0"})) on the
+	// Examples field. That default renders a filled block behind the
+	// cursor's line meant to stand out against a textarea's own
+	// otherwise-unstyled body text; here it clashes with
+	// errorBannerStyle/hintsBodyStyle/highlightTags's own foreground
+	// styling one pane over, and with cursorLineStyle's convention of
+	// marking focus via foreground+bold rather than a filled
+	// background, which every other zone in this package already
+	// uses. Assigned to examplesInput.FocusedStyle.CursorLine in
+	// newModel - a genuine no-op lipgloss.Style, not a color chosen to
+	// blend in, so the cursor line renders exactly like any other line.
+	noCursorLineStyle = lipgloss.NewStyle()
 )

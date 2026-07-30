@@ -607,24 +607,11 @@ func runInteractive(cmd *cobra.Command, reg *registry.Registry, opts *generateOp
 		return err
 	}
 
-	// Linted against result.Inputs, NOT opts: the picker lets the user
-	// edit role/output_format/examples/etc. after they were seeded
-	// from opts, so opts is stale the moment the picker returns.
-	// Linting opts here would silently report on what the user typed
-	// on the command line rather than on what they actually confirmed.
-	//
-	// This runs on stderr after the TUI session ends rather than
-	// inside the TUI itself, because the TUI has nowhere to put it
-	// today: its footer is a single line fully occupied by
-	// per-focus-zone keybind help, and errors are currently inlined
-	// into the preview viewport's own content rather than shown in a
-	// dedicated region. Giving hints a real home there would need a
-	// variable-height region, which would force a signature change on
-	// computeLayout - deliberately pure today, and run before any
-	// model exists. That's Phase 5's job (which already plans to
-	// replace the inlined preview error with a styled banner); this
-	// stderr emission is what keeps TUI users covered until then.
-	warnLintFindings(cmd.ErrOrStderr(), reg, result.Inputs, opts.noHints)
+	// No stderr hint emission here: the TUI now renders promptlint's
+	// findings itself, inside the preview pane (internal/tui's
+	// recomputePreview), so a second report on stderr after the
+	// session ends would double up on the same findings the user
+	// already saw live while editing.
 
 	switch result.Action {
 	case tui.ActionCopy:

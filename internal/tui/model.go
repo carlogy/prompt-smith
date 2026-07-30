@@ -32,6 +32,7 @@ import (
 
 	"github.com/carlogy/prompt-smith/internal/naming"
 	"github.com/carlogy/prompt-smith/internal/prompt"
+	"github.com/carlogy/prompt-smith/internal/promptlint"
 	"github.com/carlogy/prompt-smith/internal/registry"
 )
 
@@ -146,6 +147,10 @@ func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 	examplesInput.SetWidth(examplesFieldWidth(l))
 	examplesInput.SetHeight(examplesRows)
 	examplesInput.SetValue(prompt.JoinExamples(initial.Examples))
+	// Neutralizes the CursorLine background tint bubbles/textarea
+	// renders by default while focused - see noCursorLineStyle's doc
+	// comment (theme.go) for why it clashes here.
+	examplesInput.FocusedStyle.CursorLine = noCursorLineStyle
 
 	// help.Model's Width is set per-render in viewFooter, not here -
 	// it depends on the focused zone's descriptor sentence length,
@@ -725,13 +730,34 @@ func (m model) selectedIDs() []string {
 // fixed fields via the same tested engine the non-interactive path uses,
 // refreshes the preview viewport's content, and resets its scroll to
 // the top - a stale scroll offset over new content would be confusing.
+//
+// On a build error, the viewport shows ONLY the styled error banner
+// (errorBannerStyle) - no hints - mirroring the web UI's preview.html,
+// whose {{if .Error}} branch owns the whole pane with no findings
+// underneath (see internal/server/preview.go's handlePreview: Findings
+// is only ever populated in the else branch). Stacking advisory
+// suggestions under a hard error would be noise when the user simply
+// hasn't picked valid values yet, not useful context for fixing that
+// error - the same reasoning the web UI's own comment gives.
+//
+// On success, promptlint's findings for the same in render as their
+// own styled block ABOVE the built prompt (renderHints, hints.go) -
+// still inside the viewport's own content, not a separate chrome row,
+// so computeLayout and the golden layout/footer tests it backs stay
+// untouched.
 func (m *model) recomputePreview() {
-	out, err := prompt.Build(m.reg, m.currentInputs())
+	in := m.currentInputs()
+	out, err := prompt.Build(m.reg, in)
 	m.preview = out
 
-	content := highlightTags(m.preview)
+	var content string
 	if err != nil {
-		content = "error: " + err.Error()
+		content = errorBannerStyle.Render("Error: " + err.Error())
+	} else {
+		content = highlightTags(m.preview)
+		if hints := renderHints(promptlint.Check(m.reg, in)); hints != "" {
+			content = hints + "\n\n" + content
+		}
 	}
 	// bubbles v1 viewport does not soft-wrap content itself, so long
 	// lines would otherwise overflow the pane horizontally and get

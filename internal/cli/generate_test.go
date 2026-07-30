@@ -381,6 +381,42 @@ func TestGenerate_TUI_StdoutAction(t *testing.T) {
 	}
 }
 
+// TestGenerate_TUI_DoesNotEmitStderrHints pins the requirement-5
+// removal in runInteractive: the picker's result is a bare, hint-rich
+// goal (no role, no output_format, no examples, and a goal well under
+// minGoalChars) that would have tripped every collapsed-absence and
+// short-goal hint under the old post-picker warnLintFindings call.
+// promptsmith now shows those findings live inside the TUI itself
+// (internal/tui's recomputePreview), so this asserts stderr carries
+// none of them - only the built prompt on stdout - rather than
+// double-reporting the same findings a second time after the session
+// ends.
+func TestGenerate_TUI_DoesNotEmitStderrHints(t *testing.T) {
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		in.Goal = "fix it"
+		in.Skills = []string{"diagnose"}
+		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "generic", "goal"}) // no -s -> interactive + bare -> TUI
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "pass/fail") {
+		t.Errorf("expected the TUI's chosen skill to be built into stdout, got:\n%s", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "promptsmith: hint:") {
+		t.Errorf("expected no post-picker stderr hints (the TUI shows them live now), got:\n%s", stderr.String())
+	}
+}
+
 func TestGenerate_TUI_CancelProducesNoOutputAndNoError(t *testing.T) {
 	defer stubInteractive(t, true)()
 	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
