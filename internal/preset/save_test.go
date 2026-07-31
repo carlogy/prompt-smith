@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -117,16 +118,25 @@ func TestSave_FileAndDirModes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Stat(dir) error = %v", err)
 	}
-	if perm := dirInfo.Mode().Perm(); perm != 0o700 {
-		t.Errorf("dir mode = %o, want %o", perm, 0o700)
+	// Windows has no Unix permission bits - any writable directory/file
+	// reports 0777/0666 regardless of the mode passed to
+	// MkdirAll/OpenFile - so this guarantee is only meaningful, and
+	// only checked, on Unix. See the identical guard in
+	// internal/cli/generate_test.go's TestGenerate_OutWritesFileAndSuppressesStdout.
+	if runtime.GOOS != "windows" {
+		if perm := dirInfo.Mode().Perm(); perm != 0o700 {
+			t.Errorf("dir mode = %o, want %o", perm, 0o700)
+		}
 	}
 
 	fileInfo, err := os.Stat(filepath.Join(dir, "modes.yaml"))
 	if err != nil {
 		t.Fatalf("os.Stat(file) error = %v", err)
 	}
-	if perm := fileInfo.Mode().Perm(); perm != 0o600 {
-		t.Errorf("file mode = %o, want %o", perm, 0o600)
+	if runtime.GOOS != "windows" {
+		if perm := fileInfo.Mode().Perm(); perm != 0o600 {
+			t.Errorf("file mode = %o, want %o", perm, 0o600)
+		}
 	}
 }
 
@@ -279,8 +289,12 @@ func TestSave_ForceFixesLooseModeOnPreexistingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Stat() error = %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("file mode after --force over a pre-existing 0644 file = %o, want %o", perm, 0o600)
+	// Meaningless on Windows - see the identical guard in
+	// TestSave_FileAndDirModes above.
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Errorf("file mode after --force over a pre-existing 0644 file = %o, want %o", perm, 0o600)
+		}
 	}
 }
 
