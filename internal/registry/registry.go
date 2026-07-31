@@ -137,3 +137,18 @@ func (r *Registry) SupportsTarget(sk Skill, targetID string) bool {
 	}
 	return sk.Body != ""
 }
+
+// HasTarget reports whether targetID names a target actually present in
+// Targets. It exists because "unknown target" has no other single
+// source of truth to check against pre-emptively: SupportsTarget above
+// already folds an unknown target into a plain "false", indistinguishable
+// from "known target, just not supported by this skill" - which is
+// exactly why an unknown -t previously reached the interactive picker
+// silently instead of erroring (every row just renders disabled). Callers
+// that need to reject a bad target BEFORE doing anything with it (see
+// internal/cli's pre-picker guard) should use this instead of inlining
+// their own map lookup.
+func (r *Registry) HasTarget(targetID string) bool {
+	_, ok := r.Targets[targetID]
+	return ok
+}

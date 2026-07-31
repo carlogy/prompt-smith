@@ -182,6 +182,31 @@ func TestRegistry_SupportsTarget(t *testing.T) {
 	}
 }
 
+func TestRegistry_HasTarget(t *testing.T) {
+	reg := &registry.Registry{
+		Targets: map[string]registry.TargetConfig{
+			"generic":  {ID: "generic", SkillMode: "inline"},
+			"opencode": {ID: "opencode", SkillMode: "reference"},
+		},
+	}
+
+	cases := []struct {
+		target string
+		want   bool
+	}{
+		{"generic", true},
+		{"opencode", true},
+		{"does-not-exist", false},
+		{"", false},
+	}
+
+	for _, tc := range cases {
+		if got := reg.HasTarget(tc.target); got != tc.want {
+			t.Errorf("HasTarget(%q) = %v, want %v", tc.target, got, tc.want)
+		}
+	}
+}
+
 // TestSkillByID_ExactMatchOnly pins SkillByID's contract as a plain,
 // unnormalized string comparison. Callers (e.g. internal/prompt) are
 // responsible for trimming/case-folding ids before lookup; this test

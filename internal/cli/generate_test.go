@@ -339,6 +339,92 @@ func TestGenerate_UnknownTargetWithNoSkills_ErrorsWithoutGoalOnlyNote(t *testing
 	}
 }
 
+// TestGenerate_UnknownTargetWithTUIFlag_ErrorsBeforeLaunchingPicker pins
+// the actual hole this unit closes: --tui with a bogus -t used to reach
+// runInteractive (and therefore runTUIFunc) before prompt.Build ever got
+// a chance to reject the target - the picker would open with every
+// skill row rendered disabled (registry.SupportsTarget returns false for
+// any unknown target) and no explanation. err != nil alone wouldn't
+// prove the picker never opened, so this also flips a bool inside the
+// runTUIFunc spy and asserts it stayed false.
+func TestGenerate_UnknownTargetWithTUIFlag_ErrorsBeforeLaunchingPicker(t *testing.T) {
+	called := false
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		called = true
+		return tui.Result{}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "does-not-exist", "--tui", "goal"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want an error for an unknown target")
+	}
+	if called {
+		t.Error("expected runTUIFunc to never be invoked for a bogus target")
+	}
+}
+
+// TestGenerate_UnknownTargetWithEmptyGoal_ErrorsBeforeLaunchingPicker
+// covers the OTHER route into the same hole: decideUseTUI also opens
+// the picker when the goal is empty in an interactive terminal (no
+// --tui needed), so a bogus -t has to be caught there too, not just on
+// the explicit --tui path above.
+func TestGenerate_UnknownTargetWithEmptyGoal_ErrorsBeforeLaunchingPicker(t *testing.T) {
+	called := false
+	defer stubInteractive(t, true)()
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+		called = true
+		return tui.Result{}, nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "does-not-exist"}) // no goal -> decideUseTUI's goalEmpty branch
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want an error for an unknown target")
+	}
+	if called {
+		t.Error("expected runTUIFunc to never be invoked for a bogus target")
+	}
+}
+
+// TestGenerate_UnknownTargetWithUIFlag_ErrorsBeforeLaunchingServer is
+// --ui's counterpart to the two TUI cases above: runUI seeds
+// server.Options.Initial with opts.target verbatim (see runUI), with no
+// validation anywhere downstream in internal/server, so the same
+// pre-picker guard has to cover this branch too.
+func TestGenerate_UnknownTargetWithUIFlag_ErrorsBeforeLaunchingServer(t *testing.T) {
+	called := false
+	defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+		called = true
+		return nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"-t", "does-not-exist", "--ui"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want an error for an unknown target")
+	}
+	if called {
+		t.Error("expected runServerFunc to never be invoked for a bogus target")
+	}
+}
+
 func TestGenerate_QuickAndTUIFlagsParse(t *testing.T) {
 	// With --skills given and no --tui override, the gate always skips
 	// the picker regardless of -q/interactivity - this just locks that

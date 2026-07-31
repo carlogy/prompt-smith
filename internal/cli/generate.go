@@ -62,6 +62,27 @@ var errEmptyGoal = errors.New(`promptsmith: a goal is required, e.g. promptsmith
 // exclusive rather than one silently winning.
 var errGoalConflict = errors.New("promptsmith: --goal and a positional goal are mutually exclusive; pass the goal one of the two ways")
 
+// errUnknownTarget mirrors prompt.Build's own "unknown target" error
+// (internal/prompt/build.go) byte-for-byte, deliberately. It exists so
+// runGenerate can reject a bogus -t BEFORE launching either interactive
+// route (see the --ui and useTUI branches below), rather than letting
+// prompt.Build discover it once the user has already committed to an
+// action inside the picker or the web UI. cli already imports prompt
+// (see prompt.Build and prompt.Inputs used throughout this file), so
+// importing isn't the obstacle here. The obstacle is that prompt has
+// no standalone target-validation entry point - the only way to reach
+// this error today is prompt.Build itself, which demands a full set of
+// inputs and can fail for other reasons too, so it can't double as a
+// cheap pre-flight check. Duplicating the format string is what keeps
+// the early rejection byte-identical to what the non-interactive path
+// already emits; keep this comment and prompt.Build's error in sync by
+// hand if either changes. Exporting a validator from prompt would
+// remove the duplication and is the natural cleanup if this string
+// ever needs a third call site.
+func errUnknownTarget(target string) error {
+	return fmt.Errorf("prompt: unknown target %q", target)
+}
+
 // generateOptions holds the root command's flag values.
 type generateOptions struct {
 	target       string
@@ -409,7 +430,22 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 		}
 	}
 
+	// An unknown target must be rejected HERE, before either interactive
+	// route below ever opens - not deferred to prompt.Build. The
+	// non-interactive path already gets this for free (Build runs at
+	// the bottom of this function and errors out), but --ui and --tui
+	// return early and never reach it. Left unchecked, a bogus -t would
+	// launch the web UI or the picker anyway: registry.SupportsTarget
+	// (see internal/registry/registry.go) returns false for ANY
+	// unknown target, so every skill row in the picker would just
+	// render disabled with no explanation, and the web UI's Initial
+	// would seed a form nothing can ever submit successfully. See
+	// errUnknownTarget below for why the message is duplicated from
+	// prompt.Build rather than imported.
 	if opts.ui {
+		if !reg.HasTarget(opts.target) {
+			return errUnknownTarget(opts.target)
+		}
 		return runUI(cmd, reg, opts, goal)
 	}
 
@@ -437,6 +473,12 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 	}
 
 	if useTUI {
+		// Same guard as the --ui branch above, and for the identical
+		// reason: decideUseTUI only looks at flags/counts, never the
+		// registry, so it has no way to catch a bogus -t on its own.
+		if !reg.HasTarget(opts.target) {
+			return errUnknownTarget(opts.target)
+		}
 		// goal may be empty here (bare `promptsmith`): the picker
 		// collects it inline, focused on the goal field by default.
 		return runInteractive(cmd, reg, opts, goal)
