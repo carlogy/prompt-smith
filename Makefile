@@ -85,6 +85,18 @@ install-empty:
 # standalone CLI (https://tailwindcss.com/blog/standalone-cli) on
 # PATH as `tailwindcss` - no Node, and not needed at runtime or in CI,
 # since the built binary just embeds the already-committed output.
+# The committed app.css in this repo was generated with standalone
+# CLI v4.3.3 (see its own first line, "tailwindcss v4.3.3"); this
+# target pins no version, so a different CLI version can produce
+# different output bytes for the same input - if you regenerate with
+# a newer CLI, expect a byte-level diff even with no input.css change.
+#
+# app.css itself is first-party build output, not vendored - it does
+# NOT belong in THIRD-PARTY-NOTICES.md. The two files this repo
+# actually vendors from upstream (htmx.min.js, idiomorph-ext.min.js,
+# both in internal/server/assets/static/) do; see that file at the
+# repo root, and update it in the same commit as any re-vendor of
+# either one.
 ui-css:
 	tailwindcss \
 		-i internal/server/assets/tailwind/input.css \

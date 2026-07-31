@@ -35,11 +35,16 @@ import (
 //go:embed assets/templates
 var templateFiles embed.FS
 
-// staticFiles holds vendored third-party assets (htmx.min.js) and, from
-// a later commit, the built Tailwind CSS - served as-is at /static/,
-// never templated. Vendored rather than CDN-loaded per htmx's own
-// installation docs' recommendation, and to keep this a single,
-// self-contained, offline-capable binary with no calls out.
+// staticFiles holds the built Tailwind CSS (first-party) plus two
+// vendored third-party assets, htmx.min.js and idiomorph-ext.min.js -
+// served as-is at /static/, never templated. Vendored rather than
+// CDN-loaded per htmx's own installation docs' recommendation, and to
+// keep this a single, self-contained, offline-capable binary with no
+// calls out. Both vendored files carry a permissive (0BSD) upstream
+// license whose text must accompany redistribution; see
+// THIRD-PARTY-NOTICES.md at the repo root for the exact versions,
+// upstream sources, and license text, and update it in the same
+// commit as any re-vendor.
 //
 //go:embed assets/static
 var staticFiles embed.FS

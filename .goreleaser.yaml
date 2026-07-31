@@ -105,6 +105,25 @@ archives:
       - goos: windows
         formats:
           - zip
+    # Explicitly re-list GoReleaser's own default file patterns
+    # ('LICENSE*', 'README*', 'CHANGELOG*', plus lowercase variants) plus
+    # THIRD-PARTY-NOTICES.md. TRAP: specifying `files:` at all REPLACES
+    # GoReleaser's defaults entirely rather than adding to them - if
+    # this list only named THIRD-PARTY-NOTICES.md, LICENSE and README
+    # would silently stop shipping in every release archive. The
+    # notices file has to travel with the binary because it's the
+    # only place the two vendored JS assets' upstream licenses are
+    # recorded (see THIRD-PARTY-NOTICES.md) - BSD-family-derived
+    # licenses require their text to accompany redistribution, and a
+    # release tarball is exactly that.
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+      - license*
+      - readme*
+      - changelog*
+      - THIRD-PARTY-NOTICES.md
 
   - id: promptsmith-empty
     ids:
@@ -116,6 +135,17 @@ archives:
       - goos: windows
         formats:
           - zip
+    # Same trap and same reasoning as the promptsmith archive above:
+    # this variant embeds the same two vendored JS assets, so it needs
+    # the same notices file and the same re-listed defaults.
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+      - license*
+      - readme*
+      - changelog*
+      - THIRD-PARTY-NOTICES.md
 
 checksum:
   name_template: "checksums.txt"

@@ -609,3 +609,8 @@ text. It's copyleft: any distributed or network-hosted derivative must
 make its complete corresponding source available under the same terms.
 Per AGPL §13, if you run a modified promptsmith as a network service
 (it has a web server), you must offer your users its source.
+
+The web UI also vendors a couple of small, permissively-licensed
+third-party JS files; see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for their versions,
+sources, and license text.
