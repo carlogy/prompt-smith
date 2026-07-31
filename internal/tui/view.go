@@ -133,6 +133,51 @@ func (m model) viewHelpOverlay() string {
 // every field row's input starts at the same column.
 const fieldLabelWidth = len("Constraints")
 
+// effectiveFieldLabelWidth returns the label column width viewFields'
+// single-line rows (and viewExamplesField) should pad/truncate their
+// label to, given availableWidth - the same width-scrollbarWidth
+// budget the caller already computed for its own Width().Render call.
+// fieldLabelWidth is the width the layout aims for so every field's
+// value starts in the same column - but at narrow widths there isn't
+// room for markerWidth + fieldLabelWidth + ": " without WRAPPING
+// (lipgloss.Style.Width pads short lines but wraps long ones mid-word,
+// the same root cause 2ae848a fixed for viewSkillList's labels).
+// Padding a truncated label back OUT to fieldLabelWidth via "%-*s"
+// would silently undo the truncation, so the padded TARGET width
+// itself has to shrink with the available space, not just the string
+// - this is that shrinking budget. It's shared with model.go's
+// fieldWidth calculation (the WindowSizeMsg handler) so the
+// textinput's own Width and the label rendered next to it never drift
+// out of sync - if they did, the textinput would be sized against a
+// label width that no longer matches what's actually on screen next
+// to it.
+//
+// Reserves minContentWidth columns for the value after the marker,
+// label, and ": " are accounted for. Without that reservation, a
+// label that exactly exhausts the remaining budget leaves nothing for
+// the value; the fieldWidth floor in the WindowSizeMsg handler (which
+// guarantees the value area is never zero-width) would then push the
+// composed row back OVER budget by exactly that floor, re-wrapping
+// the row this function exists to keep from wrapping. Negative or
+// zero availableWidth (or a budget too small even for
+// minContentWidth) floors the result at 0 - matching truncateToWidth's
+// own "no budget" convention - rather than passing a negative width
+// into fmt.Sprintf's "%-*s" (harmless there; Go's fmt treats a
+// negative width argument as a left-justify flag on the absolute
+// value, but meaningless to reason about, so this stays >= 0
+// regardless).
+func effectiveFieldLabelWidth(availableWidth int) int {
+	markerWidth := lipgloss.Width("\u203a ")
+	remaining := availableWidth - markerWidth - len(": ") - minContentWidth
+	if remaining < 0 {
+		remaining = 0
+	}
+	if remaining > fieldLabelWidth {
+		remaining = fieldLabelWidth
+	}
+	return remaining
+}
+
 // View satisfies tea.Model: a split-pane layout (skill picker + fields
 // left, live preview right) plus a footer, or the save-filename prompt
 // when enteringFilename is true.
@@ -421,10 +466,22 @@ func (m model) fieldSpecs() []fieldSpec {
 // this same width - see examplesFieldWidth) lines up flush with the
 // single-line rows above it rather than through a second, independent
 // Style.Width call that could round differently.
+//
+// Each label is truncated (truncateToWidth) to labelWidth - a budget
+// that itself shrinks with the pane (effectiveFieldLabelWidth) -
+// before the "%-*s" padding, never the value: field VALUE wrapping is
+// intentional and the textinput owns it (see this function's earlier
+// doc comment further down about horizontal scroll), so truncating
+// the whole composed row the way viewSkillList does would break
+// behavior that's deliberate here. Only the LABEL half of the row is
+// ever this function's business to shorten.
 func (m model) viewFields(width int) string {
+	availableWidth := width - scrollbarWidth
+	labelWidth := effectiveFieldLabelWidth(availableWidth)
+
 	lines := make([]string, 0, numFields-1) // -1: Examples renders as its own block, appended below
 	for _, f := range m.fieldSpecs() {
-		label := fmt.Sprintf("%-*s", fieldLabelWidth, f.label)
+		label := fmt.Sprintf("%-*s", labelWidth, truncateToWidth(f.label, labelWidth))
 		row := fmt.Sprintf("%s: %s", label, f.input.View())
 		if f.zone == m.focus {
 			row = cursorLineStyle.Render("\u203a " + row)
@@ -433,8 +490,8 @@ func (m model) viewFields(width int) string {
 		}
 		lines = append(lines, row)
 	}
-	block := strings.Join(lines, "\n") + "\n" + m.viewExamplesField()
-	return lipgloss.NewStyle().Width(width - scrollbarWidth).Render(block)
+	block := strings.Join(lines, "\n") + "\n" + m.viewExamplesField(labelWidth)
+	return lipgloss.NewStyle().Width(availableWidth).Render(block)
 }
 
 // viewExamplesField renders the Examples field: a label on its own
@@ -450,8 +507,15 @@ func (m model) viewFields(width int) string {
 // this pane's content width via examplesFieldWidth, so rendering its
 // View() output as-is is what keeps that width consistent with the
 // single-line rows instead of double-applying a width constraint.
-func (m model) viewExamplesField() string {
-	label := fmt.Sprintf("%-*s", fieldLabelWidth, "Examples")
+//
+// labelWidth comes from the caller (viewFields) rather than this
+// function recomputing it from fieldLabelWidth directly - it's the
+// same shrink-with-the-pane budget every other field's label is
+// padded/truncated to (effectiveFieldLabelWidth), so "Examples" lines
+// up with "Goal"/"Context"/etc. even once narrow widths have shrunk
+// them all below fieldLabelWidth.
+func (m model) viewExamplesField(labelWidth int) string {
+	label := fmt.Sprintf("%-*s", labelWidth, truncateToWidth("Examples", labelWidth))
 	if m.focus == focusExamples {
 		label = cursorLineStyle.Render("\u203a " + label)
 	} else {

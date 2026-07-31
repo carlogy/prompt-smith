@@ -311,8 +311,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// with lipgloss.Width, not len - len is byte length, and
 		// \u203a is a multi-byte UTF-8 character but a single display
 		// column.
+		//
+		// labelWidth is effectiveFieldLabelWidth's shrink-with-the-pane
+		// budget, NOT the fixed fieldLabelWidth constant - at narrow
+		// widths viewFields truncates each label to that same shrunk
+		// budget (see its doc comment), and this calculation has to
+		// subtract whatever viewFields actually renders next to the
+		// value, not the label's untruncated width, or the textinput
+		// gets sized against a stale (too-large) label width and the
+		// composed row overflows its budget again despite the label fix.
+		availableFieldWidth := l.leftContentWidth - scrollbarWidth
 		markerWidth := lipgloss.Width("\u203a ")
-		fieldWidth := (l.leftContentWidth - scrollbarWidth) - fieldLabelWidth - len(": ") - markerWidth
+		labelWidth := effectiveFieldLabelWidth(availableFieldWidth)
+		fieldWidth := availableFieldWidth - labelWidth - len(": ") - markerWidth
 		if fieldWidth < minContentWidth {
 			fieldWidth = minContentWidth
 		}

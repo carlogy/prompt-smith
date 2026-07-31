@@ -142,3 +142,91 @@ func TestView_FieldRowsDoNotWrapWithLongValues(t *testing.T) {
 		}
 	}
 }
+
+// TestView_FieldLabelsFitNarrowPane is the fields-pane counterpart to
+// truncate_test.go's TestViewSkillList_NarrowWidth_OneRowPerItem,
+// covering the structurally identical defect one pane over (see
+// 2ae848a for the skill-list fix this mirrors): viewFields composed
+// its five "Label: value" rows and joined them with the multi-line
+// Examples block, then handed the WHOLE block to a single
+// lipgloss.Style.Width call. Width() pads short lines but WRAPS long
+// ones mid-word - and at a terminal narrow enough that leftContentWidth
+// drops into the teens, "Constraints" (fieldLabelWidth, the longest
+// label at 11 columns) plus its 2-col cursor-marker prefix and 2-col
+// ": " separator alone - BEFORE any value is even considered - already
+// exceeds the pane's content width. Termwidth 50 lands leftContentWidth
+// at exactly 12 (50/3=16, -paneHOverhead(4)=12; see
+// TestComputeLayout_SplitsWidthAndReservesFooterAndBorders for the
+// same arithmetic), squarely in the roadmap's specified 40-60 range and
+// well past that threshold, so this is expected to fail on unfixed
+// code with "Constraints" breaking into "Constrai"/"nts:" across two
+// physical rows - pushing the block past totalFieldsHeight()'s budget.
+func TestView_FieldLabelsFitNarrowPane(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "g"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 24})
+	m2 := updated.(model)
+
+	l := computeLayout(m2.termWidth, m2.termHeight)
+	block := stripANSI(m2.viewFields(l.leftContentWidth))
+	lines := strings.Split(block, "\n")
+
+	if len(lines) != totalFieldsHeight() {
+		t.Fatalf("viewFields produced %d lines, want exactly %d (totalFieldsHeight); a row wrapped. output:\n%s",
+			len(lines), totalFieldsHeight(), block)
+	}
+
+	maxWidth := l.leftContentWidth - scrollbarWidth
+	for i, line := range lines {
+		if h := lipgloss.Height(line); h != 1 {
+			t.Errorf("line %d has height %d, want 1 (no row should wrap): %q", i, h, line)
+		}
+		if w := lipgloss.Width(line); w > maxWidth {
+			t.Errorf("line %d width = %d, want <= %d: %q", i, w, maxWidth, line)
+		}
+	}
+}
+
+// TestView_ExtremeNarrowFieldsDoesNotPanic is the fields-pane
+// counterpart to truncate_test.go's
+// TestViewSkillList_ExtremeNarrowWidth_DoesNotPanic: at widths too
+// small for even the label's ellipsis to fit, viewFields must degrade
+// gracefully (rows may still overflow/wrap - that's an acceptable
+// extreme-narrow tradeoff no other test in this file asserts against)
+// rather than panic, e.g. from a negative slice bound.
+func TestView_ExtremeNarrowFieldsDoesNotPanic(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "g"})
+
+	for _, width := range []int{11, 5, 1, 0, -3} {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("viewFields(%d) panicked: %v", width, r)
+				}
+			}()
+			_ = m.viewFields(width)
+		}()
+	}
+}
+
+// TestView_NarrowTerminalFieldsPaneDoesNotPanic exercises the same
+// narrow case end-to-end through the full Update/View path
+// (WindowSizeMsg, not a direct viewFields call), mirroring
+// truncate_test.go's TestView_NarrowTerminalDoesNotPanic for the skill
+// list - a real narrow terminal, not a hand-picked width passed
+// straight to the rendering function.
+func TestView_NarrowTerminalFieldsPaneDoesNotPanic(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "g"})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+	m2 := updated.(model)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("View() panicked at a 50-column terminal: %v", r)
+		}
+	}()
+	_ = m2.View()
+}
