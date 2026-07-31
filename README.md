@@ -195,6 +195,8 @@ The root command generates a prompt; everything else is a subcommand.
 | `--ui` | | Launch the local web UI in your browser. |
 | `--port` | | Port for `--ui` to bind (default: an OS-assigned free port). |
 | `--no-browser` | | With `--ui`, don't automatically open a browser. |
+| `--save-preset` | | Save this invocation's target/skills/role/context/constraints/output-format/examples as a new preset (see [Presets](#presets)). |
+| `--force` | | Overwrite an existing preset; only valid alongside `--save-preset` (see [Presets](#presets)). |
 
 #### Quoting and list syntax
 
@@ -460,6 +462,73 @@ This generates exactly as if `-t claude-code -s diagnose,verify -r
 typed alongside the goal - and any of those four flags passed
 explicitly on top would override the matching preset value, field by
 field.
+
+### Saving a preset
+
+Up to this point, hand-writing a `.yaml` file directly into the presets
+directory was the only way a preset came into existence. `--save-preset
+<name>` closes that gap: it writes the current invocation's generate
+flags out as `<name>.yaml`, so any command worth keeping becomes its own
+authoring step - no separate syntax, no example file to copy first.
+
+`--save-preset` is a flag on the root command, not a `presets save`
+subcommand - deliberately, so every generate flag doubles as the preset
+authoring surface:
+
+```sh
+promptsmith -r reviewer -c "no breaking changes" --save-preset code-review
+```
+
+Only the fields in the key table above are ever written, and
+only the ones this invocation actually set: a flag you didn't pass is
+left out of the file entirely rather than written as an empty string,
+because an empty value would silently blank out that field the next time
+the preset loads, instead of leaving it alone. `--target` is the one
+field that's always written, since it always has a value (`generic` by
+default, same as everywhere else). Building a preset from another preset
+carries this through - `promptsmith -p base --save-preset derived`
+inherits every field `base` supplied that this invocation's own flags
+didn't override.
+
+There's deliberately no `goal` key here either, for the same reason
+described above: `--save-preset` never writes one, because a
+preset that recorded a goal would trip the loader's own `goal:` warning
+on every subsequent load - a preset describes *how* to ask, not *what*.
+
+If a goal is given alongside `--save-preset`, saving is additive: the
+preset is written *and* the prompt is generated in the same invocation,
+same as if `--save-preset` hadn't been passed. With no goal,
+`--save-preset` saves and exits successfully without generating
+anything - and, unlike a bare `promptsmith` with no goal run from a
+terminal, it does **not** fall through to the
+[interactive picker](#interactive-picker); the whole point of
+`--save-preset` with no goal is to author a preset without also being
+pulled into an interactive session. Either way, the saved path is
+confirmed on stderr, so stdout stays clean for piping the generated
+prompt.
+
+`--save-preset` refuses to overwrite an existing preset of the same
+name - erroring out naming the file's full path - unless `--force` is
+also given. Hand-authoring is currently the only way presets exist at
+all, so a silent clobber would destroy the only copy:
+
+```sh
+# Fails: code-review.yaml already exists.
+promptsmith -r reviewer -c "ship it, no exceptions" --save-preset code-review
+
+# Overwrites it:
+promptsmith -r reviewer -c "ship it, no exceptions" --save-preset code-review --force
+```
+
+`--force` has no shorthand (`-f` is already `--output-format`), and it
+only means something alongside `--save-preset` - passing it alone is an
+error, exactly like `--port` without `--ui`.
+
+The presets directory is created if it doesn't exist yet, and both the
+directory and the `<name>.yaml` file are written with owner-only
+permissions, since a preset's `role`/`context`/`constraints` text can
+carry proprietary detail. As with loading, the file written is always
+`<name>.yaml` - never `.yml`.
 
 ## Hints
 

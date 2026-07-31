@@ -81,6 +81,8 @@ type generateOptions struct {
 	port         int
 	noBrowser    bool
 	preset       string
+	savePreset   string
+	force        bool
 }
 
 // addGenerateFlags registers the generate flags on cmd and wires its RunE.
@@ -103,6 +105,12 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 	// doc comment); --example doesn't get to repeat it.
 	cmd.Flags().StringArrayVarP(&opts.examples, "example", "e", nil, "a worked example of the desired output (repeatable)")
 	cmd.Flags().StringVarP(&opts.preset, "preset", "p", "", "load prompt defaults from a saved preset (see `promptsmith presets`)")
+	cmd.Flags().StringVar(&opts.savePreset, "save-preset", "", "save the resolved flags (after any -p/--preset merge) as a new preset under this name")
+	// No shorthand for --force: -f is already taken by --output-format
+	// above, and cobra panics at init if two flags on the same command
+	// register the same shorthand. Don't "fix" this by giving --force
+	// a shorthand later without checking that first.
+	cmd.Flags().BoolVar(&opts.force, "force", false, "with --save-preset, overwrite an existing preset of the same name")
 	cmd.Flags().BoolVarP(&opts.toClipboard, "copy", "y", false, "copy the prompt to the clipboard instead of stdout")
 	cmd.Flags().StringVarP(&opts.out, "out", "o", "", "write the prompt to this file instead of stdout")
 	cmd.Flags().BoolVarP(&opts.quick, "quick", "q", false, "never launch the interactive picker, even in a terminal")
@@ -118,67 +126,141 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 }
 
 // presetFieldSpecs states, once, how each Preset field maps onto opts
-// and onto the flag whose explicit use should take precedence over it.
-// Table-driven so the mapping is stated in exactly one place: a
-// reviewer can check all seven flag names in one pass instead of
-// hunting through applyPreset's body, and a mistyped flagName here is
-// what TestApplyPreset_ExplicitFlagBeatsPreset's per-field cases would
+// in BOTH directions, and onto the flag whose explicit use should take
+// precedence over it. Table-driven so the mapping is stated in exactly
+// one place: a reviewer can check all seven flag names in one pass
+// instead of hunting through applyPreset's and the save path's bodies
+// separately, and a mistyped flagName here is what
+// TestApplyPreset_ExplicitFlagBeatsPreset's per-field cases would
 // catch (a bad name makes cmd.Flags().Changed(name) always report
 // false - see pflag's Changed - so the preset would keep clobbering an
 // explicit flag for that field instead of yielding to it).
 //
-// Each apply func also skips a preset field that's empty/nil: a
-// preset.Preset has no way to distinguish "the YAML omitted this key"
-// from "the key was explicitly set to its zero value" (see
-// presetDoc), so treating an omitted field as a no-op is the only
-// reading that doesn't clobber a flag's own default with an empty
-// string - --target's default is "generic" (see addGenerateFlags), so
-// a preset that only sets, say, role would otherwise blank out the
-// target to "" and fail with "unknown target \"\"".
+// apply is the preset->opts direction, used by applyPreset when
+// loading -p/--preset. It also skips a preset field that's
+// empty/nil: a preset.Preset has no way to distinguish "the YAML
+// omitted this key" from "the key was explicitly set to its zero
+// value" (see presetDoc), so treating an omitted field as a no-op is
+// the only reading that doesn't clobber a flag's own default with an
+// empty string - --target's default is "generic" (see
+// addGenerateFlags), so a preset that only sets, say, role would
+// otherwise blank out the target to "" and fail with "unknown target
+// \"\"".
+//
+// collect is the opts->preset direction, used by
+// collectPresetFromOpts when saving via --save-preset. It's
+// deliberately value-based: it copies opts's current value across
+// whenever it's non-empty, and is NEVER gated on
+// cmd.Flags().Changed. Two consequences follow, both intended rather
+// than oversights:
+//
+//   - --target defaults to "generic" and so is never empty, which
+//     means the saved preset always carries a target: key, even when
+//     the user never typed --target. A preset that omitted target
+//     would leave a future load falling back to whatever the loader
+//     happens to default to, silently, instead of recording what
+//     generation actually used.
+//   - Because the save (see runGenerate) runs AFTER applyPreset, a
+//     command like `promptsmith -p base --save-preset derived`
+//     correctly inherits every field base supplied into derived, not
+//     only the ones typed directly on this invocation. Gating collect
+//     on Changed would only copy across flags the user just typed on
+//     THIS command line and would silently drop values a loaded
+//     preset had already merged into opts.
 var presetFieldSpecs = []struct {
 	flagName string
 	apply    func(opts *generateOptions, p *preset.Preset)
+	collect  func(opts *generateOptions, p *preset.Preset)
 }{
-	{"target", func(opts *generateOptions, p *preset.Preset) {
-		if p.Target != "" {
-			opts.target = p.Target
-		}
-	}},
-	{"skills", func(opts *generateOptions, p *preset.Preset) {
-		if len(p.Skills) > 0 {
-			opts.skills = p.Skills
-		}
-	}},
-	{"role", func(opts *generateOptions, p *preset.Preset) {
-		if p.Role != "" {
-			opts.role = p.Role
-		}
-	}},
-	{"context", func(opts *generateOptions, p *preset.Preset) {
-		if p.Context != "" {
-			opts.context = p.Context
-		}
-	}},
-	{"constraints", func(opts *generateOptions, p *preset.Preset) {
-		if p.Constraints != "" {
-			opts.constraints = p.Constraints
-		}
-	}},
+	{"target",
+		func(opts *generateOptions, p *preset.Preset) {
+			if p.Target != "" {
+				opts.target = p.Target
+			}
+		},
+		func(opts *generateOptions, p *preset.Preset) {
+			if opts.target != "" {
+				p.Target = opts.target
+			}
+		},
+	},
+	{"skills",
+		func(opts *generateOptions, p *preset.Preset) {
+			if len(p.Skills) > 0 {
+				opts.skills = p.Skills
+			}
+		},
+		func(opts *generateOptions, p *preset.Preset) {
+			if len(opts.skills) > 0 {
+				p.Skills = opts.skills
+			}
+		},
+	},
+	{"role",
+		func(opts *generateOptions, p *preset.Preset) {
+			if p.Role != "" {
+				opts.role = p.Role
+			}
+		},
+		func(opts *generateOptions, p *preset.Preset) {
+			if opts.role != "" {
+				p.Role = opts.role
+			}
+		},
+	},
+	{"context",
+		func(opts *generateOptions, p *preset.Preset) {
+			if p.Context != "" {
+				opts.context = p.Context
+			}
+		},
+		func(opts *generateOptions, p *preset.Preset) {
+			if opts.context != "" {
+				p.Context = opts.context
+			}
+		},
+	},
+	{"constraints",
+		func(opts *generateOptions, p *preset.Preset) {
+			if p.Constraints != "" {
+				opts.constraints = p.Constraints
+			}
+		},
+		func(opts *generateOptions, p *preset.Preset) {
+			if opts.constraints != "" {
+				p.Constraints = opts.constraints
+			}
+		},
+	},
 	// "output-format", NOT the YAML key "output_format": Changed()
 	// looks flags up by their cobra flag name (hyphenated), not by the
 	// preset file's key.
-	{"output-format", func(opts *generateOptions, p *preset.Preset) {
-		if p.OutputFormat != "" {
-			opts.outputFormat = p.OutputFormat
-		}
-	}},
+	{"output-format",
+		func(opts *generateOptions, p *preset.Preset) {
+			if p.OutputFormat != "" {
+				opts.outputFormat = p.OutputFormat
+			}
+		},
+		func(opts *generateOptions, p *preset.Preset) {
+			if opts.outputFormat != "" {
+				p.OutputFormat = opts.outputFormat
+			}
+		},
+	},
 	// "example", singular: the flag is -e/--example even though both
 	// the preset field and the opts field are plural (Examples/examples).
-	{"example", func(opts *generateOptions, p *preset.Preset) {
-		if len(p.Examples) > 0 {
-			opts.examples = p.Examples
-		}
-	}},
+	{"example",
+		func(opts *generateOptions, p *preset.Preset) {
+			if len(p.Examples) > 0 {
+				opts.examples = p.Examples
+			}
+		},
+		func(opts *generateOptions, p *preset.Preset) {
+			if len(opts.examples) > 0 {
+				p.Examples = opts.examples
+			}
+		},
+	},
 }
 
 // applyPreset loads the preset named by -p/--preset, if given, and uses
@@ -226,8 +308,41 @@ func applyPreset(cmd *cobra.Command, opts *generateOptions) error {
 	return nil
 }
 
+// collectPresetFromOpts builds a *preset.Preset out of opts's current
+// values by running every collect func in presetFieldSpecs, so the
+// fields the saved preset carries are governed by the exact same
+// seven-entry table applyPreset reads in the opposite direction - see
+// presetFieldSpecs's doc comment for the collect direction's
+// value-based semantics (non-empty check, no Changed gating).
+func collectPresetFromOpts(opts *generateOptions) *preset.Preset {
+	p := &preset.Preset{}
+	for _, spec := range presetFieldSpecs {
+		spec.collect(opts, p)
+	}
+	return p
+}
+
+// saveGeneratedPreset implements --save-preset: it builds a
+// *preset.Preset from opts (see collectPresetFromOpts) and writes it
+// via preset.Save, then confirms the full written path on stderr.
+// Stderr, not stdout, mirrors copyAndConfirm's reasoning for --copy:
+// with a goal present, stdout carries the generated prompt and has to
+// stay clean enough to pipe.
+func saveGeneratedPreset(cmd *cobra.Command, opts *generateOptions) error {
+	p := collectPresetFromOpts(opts)
+	path, err := preset.Save(opts.savePreset, p, opts.force)
+	if err != nil {
+		return fmt.Errorf("promptsmith: %w", err)
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "promptsmith: saved preset %q to %s\n", opts.savePreset, path)
+	return nil
+}
+
 func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, args []string) error {
 	if err := validateUIFlags(cmd, opts); err != nil {
+		return err
+	}
+	if err := validateForceFlag(cmd, opts); err != nil {
 		return err
 	}
 
@@ -270,8 +385,50 @@ func runGenerate(cmd *cobra.Command, reg *registry.Registry, opts *generateOptio
 	if err != nil {
 		return err
 	}
+
+	// Gated on cmd.Flags().Changed("save-preset"), not
+	// opts.savePreset != "" - the same reasoning as applyPreset's own
+	// gate on Changed("preset"): --save-preset "" must still reach
+	// preset.Save's name-validation error, rather than being silently
+	// treated as "no save requested".
+	//
+	// Placed HERE - after resolveGoal, but before the --ui branch
+	// below - is load-bearing, not incidental: resolveGoal is where a
+	// malformed invocation (--goal plus a positional goal, i.e.
+	// errGoalConflict) errors out, and that has to happen BEFORE
+	// anything touches the filesystem - never write a file for a
+	// command that's about to fail. Running after applyPreset
+	// (further up) is equally deliberate: it's what lets
+	// `-p base --save-preset derived` inherit base's already-merged
+	// values into the saved preset - see presetFieldSpecs's
+	// collect-direction doc comment.
+	savePresetRequested := cmd.Flags().Changed("save-preset")
+	if savePresetRequested {
+		if err := saveGeneratedPreset(cmd, opts); err != nil {
+			return err
+		}
+	}
+
 	if opts.ui {
 		return runUI(cmd, reg, opts, goal)
+	}
+
+	// --save-preset with no goal is already a complete, successful
+	// command (the preset was saved above) and must NOT fall through
+	// into decideUseTUI's goalEmpty branch below - opening the
+	// interactive skill picker because someone asked to save a preset
+	// would be a surprising, unrelated side effect. The !opts.tui half
+	// of the condition matters: this guard only suppresses the
+	// IMPLICIT empty-goal reason for launching the picker. An explicit
+	// --tui is the user directly asking for it, and swallowing that
+	// would be its own surprise - so `--save-preset name --tui` (still
+	// no goal) falls through to decideUseTUI below, which opens the
+	// picker anyway via forceTUI. Net effect: saving is additive with
+	// every other mode (goal: saves and generates; --ui: saves and
+	// serves; --tui: saves and opens the picker) rather than
+	// introducing any new mutual exclusion.
+	if savePresetRequested && goal == "" && !opts.tui {
+		return nil
 	}
 
 	useTUI, err := decideUseTUI(isInteractive(), opts.quick, opts.tui, len(opts.skills), goal == "")
@@ -541,6 +698,21 @@ func validateUIFlags(cmd *cobra.Command, opts *generateOptions) error {
 		return errors.New("promptsmith: --ui and --copy are mutually exclusive")
 	case opts.out != "":
 		return errors.New("promptsmith: --ui and --out are mutually exclusive")
+	}
+	return nil
+}
+
+// validateForceFlag enforces --force's one flag relationship:
+// overwriting an existing preset is meaningless without a preset name
+// to overwrite, so --force alone is a user error, mirroring
+// validateUIFlags's --port/--no-browser precedent above. Kept as its
+// own small function rather than folded into validateUIFlags: that
+// function is specifically about --ui's own flag relationships, and
+// growing it to cover an unrelated flag pairing would leave it
+// misnamed.
+func validateForceFlag(cmd *cobra.Command, opts *generateOptions) error {
+	if opts.force && !cmd.Flags().Changed("save-preset") {
+		return errors.New("promptsmith: --force requires --save-preset")
 	}
 	return nil
 }

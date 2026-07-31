@@ -55,14 +55,23 @@ var ErrNotFound = errors.New("preset not found")
 // intentionally absent - see the Preset doc comment - and LoadFS gives
 // it a dedicated warning rather than treating it as an ordinary unknown
 // key, since it's the one omission a user is likely to hit by mistake.
+//
+// Every tag also carries "omitempty". That's read by Save (save.go),
+// not by LoadFS: yaml.v3's omitempty affects marshaling only and is
+// inert on decode, so LoadFS's behavior here is completely unchanged.
+// Save reuses this exact struct rather than defining a second
+// write-only one, because omitempty then gives it "leave unset fields
+// out of the file" as a property of the struct's tags instead of seven
+// hand-written "if this field is empty, skip it" checks at the call
+// site.
 type presetDoc struct {
-	Target       string   `yaml:"target"`
-	Skills       []string `yaml:"skills"`
-	Role         string   `yaml:"role"`
-	Context      string   `yaml:"context"`
-	Constraints  string   `yaml:"constraints"`
-	OutputFormat string   `yaml:"output_format"`
-	Examples     []string `yaml:"examples"`
+	Target       string   `yaml:"target,omitempty"`
+	Skills       []string `yaml:"skills,omitempty"`
+	Role         string   `yaml:"role,omitempty"`
+	Context      string   `yaml:"context,omitempty"`
+	Constraints  string   `yaml:"constraints,omitempty"`
+	OutputFormat string   `yaml:"output_format,omitempty"`
+	Examples     []string `yaml:"examples,omitempty"`
 }
 
 // knownKeys is presetDoc's yaml tag set, used by the pass-2 unknown-key
