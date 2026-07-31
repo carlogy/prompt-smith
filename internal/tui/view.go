@@ -524,12 +524,25 @@ func (m model) viewExamplesField(labelWidth int) string {
 	return label + "\n" + m.examplesInput.View()
 }
 
+// viewFilenamePrompt's trailing paragraph documents what writeFile
+// (internal/cli/generate.go) actually does with the path it's given -
+// both save-path surfaces (this prompt's result.WritePath and --out)
+// go through that same function, so the behavior it describes is
+// identical either way. It used to claim the opposite of both: that
+// "~" isn't expanded and the parent directory must already exist.
+// Neither was true - writeFile has always called expandPath (which
+// resolves "~"/"~user") and os.MkdirAll before writing - so the
+// wording here is corrected to match, mirroring the phrasing
+// README.md's --out flag row already uses for the identical behavior
+// ("accepts ~/~user; missing parent directories are created") rather
+// than inventing a second way to say the same thing.
 func (m model) viewFilenamePrompt() string {
 	return fmt.Sprintf(
 		"Save prompt as:\n%s\n(enter to confirm, esc to cancel)\n\n"+
 			"Relative paths save to the current directory (where promptsmith\n"+
-			"was run); use an absolute path to save elsewhere. The parent\n"+
-			"directory must already exist; \"~\" is not expanded.",
+			"was run); use an absolute path to save elsewhere. Accepts \"~\"\n"+
+			"or \"~user\" for a home directory; missing parent directories\n"+
+			"are created automatically.",
 		m.filenameInput.View(),
 	)
 }

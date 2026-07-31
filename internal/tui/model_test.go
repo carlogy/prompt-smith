@@ -559,9 +559,29 @@ func TestView_FilenamePromptDocumentsSavePathBehavior(t *testing.T) {
 	m2 := updated.(model)
 
 	got := stripANSI(m2.View())
-	for _, want := range []string{"current directory", "absolute path"} {
+	// "current directory"/"absolute path" alone predate this test's
+	// fix and pass unchanged either way - they don't distinguish the
+	// corrected wording from the original, FALSE claim it replaced
+	// ("The parent directory must already exist; \"~\" is not
+	// expanded" - contradicted by writeFile's actual expandPath +
+	// os.MkdirAll behavior, internal/cli/generate.go). The "~" and
+	// "parent director" assertions below pin the CORRECTED claims
+	// specifically, so a regression back to the false wording (which
+	// also mentions "~" and "director[y]", just with the opposite
+	// meaning) would need its own substring check to catch - these
+	// are it.
+	for _, want := range []string{"current directory", "absolute path", "~", "parent director"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected the filename prompt to document save-path behavior (%q), got:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "must already exist") {
+		t.Errorf("expected the filename prompt not to claim the parent directory must already exist - writeFile creates it via os.MkdirAll, got:\n%s", got)
+	}
+	if strings.Contains(got, "not expanded") {
+		t.Errorf("expected the filename prompt not to claim \"~\" isn't expanded - writeFile expands it via expandPath, got:\n%s", got)
+	}
+	if !strings.Contains(got, "created") {
+		t.Errorf("expected the filename prompt to state that missing parent directories are created, got:\n%s", got)
 	}
 }
