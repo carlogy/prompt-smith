@@ -656,246 +656,264 @@ work)**
 Deferred to a follow-up (moved to Deferred follow-ups below): a
 save-as-preset key in the TUI.
 
-## Locked, not yet implemented
-
 ### Phase 7 — shipped-asset hygiene
-Two units, both about what ships inside `internal/server/assets` and how
-it got there.
+Commits `bea8609` (`docs: add third-party license notices for vendored
+web assets`) and `5fc2b7a` (`fix(server): scope tailwind content
+detection to the templates`). Two independent units sharing one phase
+because both touch what ships inside `internal/server/assets`.
 
-**Unit A — third-party license notices.** This half is a compliance
-obligation, not a nice-to-have.
-- Two vendored third-party assets, both under
-  `internal/server/assets/static/`, both checked into git with **no**
-  build-time fetch step anywhere in the Makefile: `htmx.min.js` (v2.0.10,
-  51,238 bytes) and `idiomorph-ext.min.js` (idiomorph v0.7.4, the `-ext`
-  build, from jsDelivr, 10,153 bytes).
-- Embedded via `internal/server/templates.go:44-45`; idiomorph is
-  referenced at `internal/server/assets/templates/index.html:8`.
-- Both are BSD-2-Clause. **Neither license text exists anywhere in the
-  repo** — the only `LICENSE` is the project's own AGPL text.
-  BSD-2-Clause requires the copyright notice and license text to
-  accompany redistribution, so an AGPL project shipping these without
-  attribution has a real (if minor) compliance gap. This is the reason
-  the phase exists.
-- `idiomorph-ext.min.js` contains no version string at all; its only
-  provenance record today is commit `3fc9109`'s message. `htmx.min.js`
-  is marginally better off — its version is discoverable only by
-  grepping the minified string `version:"2.0.10"`.
-- `app.css` (19,880 bytes) is **first-party** Tailwind output, NOT
-  vendored, and already has its own convention (the explanatory comment
-  at `internal/server/assets/tailwind/input.css:1-26` plus `make ui-css`
-  at `Makefile:88-91`). Say so explicitly so nobody "fixes" it too.
+**The locked premise was wrong, and the correction matters more than
+anything else in this phase.** The locked spec asserted both vendored
+assets are BSD-2-Clause and that "BSD-2-Clause requires the copyright
+notice and license text to accompany redistribution... This is the
+reason the phase exists." That's false. htmx v2.0.10 and idiomorph
+v0.7.4 are both **0BSD (Zero-Clause BSD)** — verified directly against
+both upstream `LICENSE` files at the pinned tags
+(https://raw.githubusercontent.com/bigskysoftware/htmx/v2.0.10/LICENSE
+and the idiomorph v0.7.4 equivalent) and against both packages' npm
+`license` metadata. 0BSD is the BSD-2-Clause text with both conditions
+removed, including notice retention — its entire operative text is
+"Permission to use, copy, modify, and/or distribute this software for
+any purpose with or without fee is hereby granted." There is no
+attribution or notice-retention obligation. **There was never a
+compliance gap.** Record this explicitly as a correction to the
+roadmap's own earlier claim, so a future reader doesn't re-derive the
+wrong premise — this is exactly the kind of error this file exists to
+prevent recurring.
 
-Locked decisions:
-- A single repo-root notices file (e.g. `THIRD-PARTY-NOTICES.md`)
-  listing, per asset: name, exact version, upstream source URL, license
-  identifier, and the date vendored — followed by the full BSD-2-Clause
-  text for each. Rationale: one file a re-vendoring step must update,
-  and the conventional place a license auditor looks. Explicitly NOT
-  per-file sidecar `.LICENSE` files and NOT a comment inside the
-  minified JS — a comment can't survive re-minification or a re-vendor
-  reliably, which is exactly how the current gap happened.
-- The convention gets documented where the next person will actually
-  collide with it — adjacent to the asset tooling / `ui-css` target —
-  so re-vendoring an asset updates the notice rather than silently
-  drifting.
+Unit A shipped anyway, re-justified on honest grounds: provenance and
+supply-chain hygiene, not compliance. This repo is the only record of
+what these vendored binaries are (no build-time fetch step anywhere);
+exact versions plus sha256s make a future upgrade or CVE response
+auditable; `idiomorph-ext.min.js` embeds no version string at all, so
+without the notices file its version is unrecoverable from the
+artifact alone; and a repo-root notices file is the conventional place
+an auditor or downstream packager looks.
 
-**Unit B — scope Tailwind's content detection.**
-- The recorded cause was wrong. It is **not** the
-  `@source "../templates/**/*.html"` directive at
-  `internal/server/assets/tailwind/input.css:28` — that glob correctly
-  points only at templates. The actual cause is **Tailwind v4's
-  automatic full-project content detection**, which scans the rest of
-  the repo including `.go` files, where ordinary Go identifiers collide
-  with utility names.
-- Measured empirically, not estimated: a full-project build produces
-  19,948 bytes vs. 16,793 for an isolated templates-only build —
-  **3,155 bytes of dead CSS**, and **20** spurious utilities, not the
-  single `.truncate` originally reported: `absolute blur collapse
-  filter fixed grow hidden inline invert invisible lowercase ordinal
-  outline relative resize shrink table transition truncate visible`.
-  `truncateToWidth` is at `internal/tui/view.go:243`.
-- No Go file in this repo contains Tailwind class names in a string
-  literal, so there is no legitimate reason to scan `.go` sources at
-  all.
-- This is also what produced the spurious `app.css` diff that Phase 6's
-  integration step had to investigate and revert; fixing it should make
-  `make ui-css` a genuine no-op.
+**What shipped in Unit A** (`bea8609`):
+- `THIRD-PARTY-NOTICES.md` at the repo root: per asset — name, exact
+  version, upstream source URL, SPDX id (`0BSD`), date vendored (from
+  git history), sha256 of the vendored bytes, and the verbatim
+  upstream license text.
+- Both vendored files were verified byte-for-byte identical to their
+  published upstream releases by fetching upstream and comparing
+  sha256: `htmx.min.js`
+  `71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de`,
+  `idiomorph-ext.min.js`
+  `a6437e55b1b6a07bc421f0d230266a39399b6826c6ed19e0ed9c63b707444a5f`.
+  Vendored dates: htmx 2026-07-17 (commit `f06751b`), idiomorph
+  2026-07-30 (commit `3fc9109`).
+- `internal/server/templates.go`'s `staticFiles` doc comment was stale
+  — named only htmx, omitted idiomorph entirely, and carried a stale
+  "from a later commit" phrasing. Now names both assets and points at
+  the notices file.
+- Convention noted next to the `ui-css` Makefile target, plus the
+  exact Tailwind CLI version used (v4.3.3), since the target pins
+  none — a latent reproducibility gap worth knowing about but not
+  fixed here.
+- README's License section now points at the notices file.
+- **A `files:` block was added to both goreleaser archive entries** —
+  neither had one, so only goreleaser's default patterns applied and
+  the notices file would never have reached a binary recipient. The
+  gotcha discovered here, worth keeping: specifying `files:`
+  **replaces** goreleaser's defaults rather than adding to them, and a
+  literal non-glob entry like `CHANGELOG` is treated as
+  required-to-exist and hard-fails the build (`globbing failed for
+  pattern CHANGELOG`) in a repo with no CHANGELOG — the wildcard form
+  `CHANGELOG*` is required instead. Verified by an actual `make
+  release-snapshot` plus `tar -tzf`, confirming `LICENSE`, `README.md`,
+  and `THIRD-PARTY-NOTICES.md` all present in both variants' archives.
 
-Locked decisions:
-- Disable Tailwind's automatic content detection explicitly (v4's
-  `source(none)` on the `@import "tailwindcss"`, or the equivalent) so
-  only the template glob is scanned. Rationale: the templates are the
-  complete and only source of class names, so automatic detection can
-  only ever add false positives here.
-- Acceptance criteria, all mechanically checkable: regenerated
-  `app.css` no longer contains `.truncate{`, its size drops to roughly
-  16.8KB, `make ui-css` is idempotent (hash unchanged across two runs),
-  and the web UI still renders correctly.
-- Risk to state plainly: over-tightening could drop a utility the
-  templates genuinely use. The e2e suite plus a hand check of the
-  rendered page is the guard, and any *reduction* in classes the
-  templates need would show up as visibly broken layout rather than a
-  test failure.
+**What shipped in Unit B** (`5fc2b7a`):
+- `@import "tailwindcss" source(none);` at `input.css:27`, keeping the
+  explicit `@source "../templates/**/*.html"` glob. The locked spec's
+  cause was correct on the second attempt: it was Tailwind v4's
+  automatic full-project content detection scanning `.go` files, not
+  the `@source` glob.
+- Measured outcome, all confirmed empirically rather than estimated:
+  committed `app.css` went **19,880 → 16,793 bytes**; 150 → 131
+  distinct rule selectors; exactly **19** bare utility rules removed
+  (`.absolute .blur .collapse .filter .fixed .grow .hidden .inline
+  .invert .invisible .lowercase .ordinal .outline .relative .resize
+  .shrink .table .transition .visible`), gained set empty. A fresh
+  full-project build for comparison was 19,949 bytes / 151 selectors,
+  the 151st being `.truncate`.
+- Verification technique worth keeping, reusable for any future CSS
+  change and stronger than eyeballing the page: extract and diff the
+  selector sets with `rg -o --pcre2 '\.[a-zA-Z0-9\:._-]+(?=\{)' | sort
+  -u` and `comm`, asserting the removed set exactly and the gained set
+  empty.
+- Risk retired: the locked spec worried that over-tightening could
+  drop a utility the templates genuinely use. Measurably it did not —
+  the bare `.outline` and `.absolute` rules are dead, but the variant
+  rules the templates actually use (`.focus\:absolute:focus`,
+  `.focus\:outline:focus`, `.focus\:outline-2:focus`,
+  `.focus\:outline-cornflower-500:focus`, `.shrink-0`,
+  `.transition-opacity`) are different rules and all survived,
+  verified individually.
+- `make ui-css` is now a genuine no-op. This was deliberately
+  re-verified **after** Phase 8 landed, not just after Phase 7,
+  because Phase 8 edits `internal/tui/view.go` — the very file whose
+  `truncateToWidth` identifier leaked the bogus `.truncate` rule in
+  the first place. Identical shasum across two runs with Phase 8's
+  code present, `git status --porcelain` clean. That's what proves the
+  fix generalizes instead of merely special-casing one identifier —
+  closing the follow-up question Phase 6's integration pass left open.
 
 ### Phase 8 — narrow-width fields pane
-The sequel to Phase 5's `2ae848a` ("fix(tui): truncate skill labels so
-the list renders at narrow widths"), which fixed the structurally
-identical defect one pane over.
+Commit `94e04ae` (`fix(tui): truncate field labels so the fields pane
+renders at narrow widths`). The sequel to Phase 5's `2ae848a`, fixing
+the structurally identical defect one pane over.
 
-Facts (verified this pass):
-- `viewFields` at `internal/tui/view.go:424-438` builds five single-line
-  rows as `"%-*s: %s"`, padding each label to `fieldLabelWidth =
-  len("Constraints")` = 11 (`view.go:134`), joins them plus
-  `viewExamplesField()` (`view.go:453-461`) with newlines, then applies
-  **one** `lipgloss.NewStyle().Width(width - scrollbarWidth).Render(block)`
-  to the composed multi-line block (`view.go:437`).
-- Root cause: there is **no per-row truncation anywhere** — unlike
-  `viewSkillList`, the composed block is handed to a single `Width()`
-  call at the end, which wraps the composed row text. `Constraints` is
-  the longest label, so it's the first to break mid-word
-  (`Constrai`/`nts:`).
-- Second symptom, same root cause: the block has no height cap, so a
-  row that wraps to 2+ physical lines makes the block exceed
-  `totalFieldsHeight()`'s budget (`internal/tui/layout.go:68-101`), and
-  `computeLayout` never re-checks actual rendered height against that
-  budget — the extra lines push past the pane and clip the examples
-  placeholder.
-- Test gap: the only narrow-width-relevant `viewFields` test,
-  `TestView_FieldRowsDoNotWrapWithLongValues`
-  (`internal/tui/fields_view_test.go:106-144`), runs at **width 90** —
-  comfortably wide. Nothing exercises `viewFields` below 80 columns. By
-  contrast `internal/tui/truncate_test.go` covers `viewSkillList` at
-  widths 11 and 24.
-
-Locked decisions:
-- Reuse the existing `truncateToWidth` helper from `2ae848a`, applied
-  to the **label only**, before the `%-*s` padding. Rationale: field
-  *value* wrapping is intentional and the `textinput` owns it (see the
-  doc comment at `view.go:414-423`) — truncating the whole composed
-  row, the way `viewSkillList` does, would break a behavior that's
-  deliberate here.
-- Treat the bottom-clipping as the same root cause, but **prove it with
-  a test** at a width in the 40-60 range rather than assuming. If the
-  label fix alone doesn't restore the line count, an explicit height
-  clamp is a second, separately-justified change — not a silent
-  add-on.
-- Do NOT touch `internal/fielddesc`. The label strings are
-  `viewFields`' own, from `fieldSpecs()` (`view.go:404-412`);
-  `fielddesc` holds one descriptive *sentence* per field
-  (`fielddesc.go:46`) consumed by the footer and web hints. They're
-  different strings, so no cross-surface consistency work is entangled
-  here — which is what the separation in `fielddesc`'s package comment
-  was for.
-- Mirror `truncate_test.go`'s established harness for this defect
-  class: call the render function directly at a hand-picked narrow
-  width, assert exact line count via `strings.Split`, assert
-  `lipgloss.Height(line) == 1` per line, and add one end-to-end
-  `Update(tea.WindowSizeMsg{...})` + `View()` panic guard at a
-  realistic narrow terminal size.
+- The locked design held: `truncateToWidth` applied to the **label
+  only**, never the value — value wrapping is deliberate and the
+  `textinput` owns it.
+- A new `effectiveFieldLabelWidth(availableWidth)` helper in `view.go`
+  computes a label-column budget that **shrinks** with the pane. The
+  critical subtlety: padding a truncated label back out to the fixed
+  `fieldLabelWidth` const via `%-*s` would silently undo the
+  truncation — the padded target width itself has to shrink, not just
+  the string. It reserves `minContentWidth` for the value so the value
+  area is never squeezed to zero.
+- `viewExamplesField` now takes the label width from its caller
+  instead of recomputing from the const, and
+  `internal/tui/model.go`'s `fieldWidth` calculation in the
+  `WindowSizeMsg` handler derives the same budget through the same
+  helper — so the textinput's width and the label rendered beside it
+  can never drift out of sync.
+- **The height clamp was not needed and was deliberately not added.**
+  Evidence: after the label fix, `viewFields` produces exactly
+  `totalFieldsHeight()` = 9 lines at terminal widths 80, 60, 55, 50,
+  45, 40, and 30. Only at terminal width 20 (a degenerate
+  `leftContentWidth` of 2, where the marker and ": " overhead alone
+  exceed the budget) does it still wrap, covered by a no-panic guard
+  test and matching the same tolerance `viewSkillList`'s precedent
+  tests allow at extreme widths. The roadmap's own instruction to
+  prove the clamp necessity with a test rather than assume it paid off
+  here — the assumption would have been wrong.
+- The red phase was observed and recorded before fixing: at terminal
+  width 50 (`leftContentWidth` 12), `viewFields` produced 15 lines
+  instead of 9, with `Constraints` breaking the row.
+- Test gap closed: nothing exercised `viewFields` below 80 columns
+  before (the only narrow-relevant test ran at width 90 and tests long
+  values, not narrow terminals). Three tests added to
+  `fields_view_test.go`: a narrow-pane label-fit test, an
+  extreme-narrow no-panic test, and a `WindowSizeMsg` + `View()`
+  end-to-end panic guard. `TestView_FieldRowsDoNotWrapWithLongValues`
+  was left unmodified.
+- `internal/fielddesc` untouched, as locked.
 
 ### Phase 9 — what the TUI silently swallows
-Three independent units. The theme across all three: input problems the
-picker currently absorbs instead of reporting.
+Three independent units, each landed as its own commit. The theme:
+input problems the picker used to absorb instead of reporting.
 
-**Unit A — validate the target before launching the picker (and keep the
-banner).** This unit corrects a factual error in the previous roadmap.
-The old deferred item claimed the TUI's build-error banner was
-unreachable because "the picker structurally prevents all three" of
-`prompt.Build`'s error cases, and asked whether the banner earns its
-keep. Research found that only two of three are prevented:
-- Unknown skill id: genuinely prevented — `buildItems`
-  (`internal/tui/model.go:223-243`) only ever iterates `reg.Skills`, so
-  an unknown id in `initial.Skills` never becomes a selectable item.
-- Skill unsupported on target: genuinely prevented — `buildItems` sets
-  `disabled := !reg.SupportsTarget(sk, target)` and forces `selected:
-  !disabled && selectedSet[sk.ID]` for every row, agnostic of whether
-  the ids came from a preset, `--skills`, or the picker, and it re-runs
-  on every target switch (`updateTargetField`, `model.go:518-547`).
-- **Unknown target: NOT prevented.** `newModel` takes `initial.Target`
-  verbatim with no check against `reg.Targets` (`model.go:179`), and
-  the CLI never calls `prompt.Build` before launching the picker —
-  `runGenerate` goes `decideUseTUI` → `runInteractive` directly. So
-  `promptsmith -t bogus --tui`, or `-t bogus` with no goal in an
-  interactive terminal (since `decideUseTUI` also fires on
-  `goalEmpty`), opens the picker on a bogus target. Nothing forces the
-  user through the target field, so `Result.Inputs.Target` stays bogus
-  and the failure only surfaces from `runInteractive`'s own
-  `prompt.Build` call after the user has already committed to an
-  action. The non-interactive path errors correctly today
-  (`internal/cli/generate_test.go:332-335`); no test covers the
-  interactive path.
+**Unit A — validate the target before launching the picker (and keep
+the banner).** Commit `f07c56c` (`fix(cli): reject an unknown target
+before launching the picker`).
+- Added `Registry.HasTarget(targetID string) bool` to
+  `internal/registry/registry.go` — a genuine gap, since
+  `SupportsTarget` folds "unknown target" into a plain `false` and
+  every other call site inlined the map lookup.
+- `runGenerate` now rejects an unknown `-t` before both interactive
+  branches (`--ui` and `useTUI`).
+- The error string is byte-identical to what the non-interactive path
+  already emitted (`prompt: unknown target %q`), via a small
+  `errUnknownTarget` helper in `internal/cli/generate.go`, so no
+  user-visible message changed on any path. The deliberate
+  duplication's real reason: `internal/cli` already imports
+  `internal/prompt`, so importing isn't the obstacle — the obstacle is
+  that `internal/prompt` exposes no standalone target-validation entry
+  point, only `prompt.Build`, which needs a complete input set and can
+  fail for other reasons, so it can't serve as a cheap pre-flight
+  check. Exporting a validator from `internal/prompt` is the natural
+  cleanup if that string ever needs a third call site.
+- Tests assert the sharp thing, not just that an error occurred: the
+  `runTUIFunc`/`runServerFunc` spies must never be invoked. Three
+  routes covered — `-t bogus --tui`, `-t bogus` with an empty goal in
+  an interactive terminal, and `-t bogus --ui`.
+- The TUI build-error banner was kept and its white-box test
+  (`internal/tui/preview_hints_test.go`) left untouched. The old
+  roadmap question "does the banner earn its keep" is definitively
+  answered yes; validation was placed in the CLI precisely so the
+  banner stays reachable.
 
-Locked decisions:
-- **Keep the build-error banner.** It is load-bearing for a real
-  user-error path, not defensive-only. This supersedes the old "decide
-  whether it earns its keep" question, which is now answered: it earns
-  it. The banner lives in `recomputePreview` (`model.go:773-796`, error
-  branch at `778-780`) with `errorBannerStyle` (`internal/tui/theme.go:109-113`)
-  having exactly that one call site.
-- **Reject an invalid target before the picker launches** (project
-  owner's decision), erroring exactly the way the non-interactive path
-  already does for `-t does-not-exist`. Rationale: it's consistent
-  across both paths, and the TUI never holds an invalid target at all.
-  The alternatives considered and rejected were having the picker snap
-  to the registry default with a banner explaining the substitution
-  (silently changes what the user asked for) and documenting the
-  status quo while only closing the test gap.
-- Implementation caution to record: validation has to land before
-  `runInteractive` without double-erroring on the non-interactive path
-  (which already fails via `prompt.Build`) and without breaking
-  `--ui`, which also carries a target.
-- Add the missing integration tests: `-t bogus --tui`, **and** the
-  goal-empty equivalent (`-t bogus` with no goal in an interactive
-  terminal), since those are two distinct routes into the same hole.
-  Note that the existing banner tests
-  (`internal/tui/preview_hints_test.go:29-48`, which drives `newModel`
-  white-box with `Target: "does-not-exist"`) stay valid and should not
-  be deleted.
+**Unit B — make registry warnings survivable.** Commit `a988f0a`
+(`fix(cli): print registry warnings after the picker exits`).
+- `internal/cli/root.go`'s `Execute()` was split into a thin
+  `os.Exit` wrapper plus a testable `run(stdout, stderr io.Writer,
+  args []string) int`. Necessary, not gratuitous: `Execute()` was
+  called by zero tests and called `os.Exit` inline, so the new
+  ordering would otherwise have been unverifiable.
+- Warnings now print **after** the command tree finishes and
+  **before** the terminal error, so a command failure stays closest to
+  the user's cursor. The trap that forced the int-return: the original
+  code's `os.Exit(1)` immediately after the command's error check
+  would have swallowed every warning printed above it.
+- Covered by two new tests driving `run` directly with a real
+  malformed skill in `PROMPTSMITH_SKILLS_DIR`, asserting exit code and
+  the byte-offset ordering of warning vs. error in captured stderr.
+- Honest limitation to record: the ordering is verified against a
+  `bytes.Buffer`, not a real TTY alt-screen — actual scrollback loss
+  was not simulated. Also `registry.Load`'s own error branch has no
+  warnings to swallow (every error return there carries a nil
+  warnings slice), so it was left as-is.
+- The `--ui` gap this unit's locked spec left "explicitly unproven" is
+  now confirmed — see the Deferred follow-ups section below.
 
-**Unit B — make registry warnings survivable.**
-`loadUserSkills` warnings are generated at
-`internal/registry/embed.go:62`, returned from `registry.Load()`
-(`embed.go:34-63`), and printed at `internal/cli/root.go:40-42` inside
-`Execute()` — immediately before `newRootCmd(reg).Execute()` at
-`root.go:44`. The picker's alt-screen (`internal/tui/tui.go:41`,
-`tea.WithAltScreen()`) opens long after, and most terminals don't
-restore scrollback across it, so the warnings are gone for good. A
-malformed user skill in `PROMPTSMITH_SKILLS_DIR` is invisible from the
-user's point of view.
+**Unit C — the filename prompt's help text is wrong.** Commit
+`7d3b040` (`fix(tui): correct the filename prompt's save-path help
+text`).
+- The prompt claimed the parent directory must already exist and that
+  `~` is not expanded. Both false, re-verified in code: `writeFile`
+  (`internal/cli/generate.go`) calls `expandPath` (which resolves both
+  `~` and `~user`) then `os.MkdirAll` before writing, and it's the
+  single function backing both the TUI save path and the `--out`
+  flag. New wording mirrors README's existing phrasing for `--out`.
+- Sharp detail worth recording: `TestView_FilenamePromptDocumentsSavePathBehavior`
+  (in `model_test.go`, not `view_test.go` as the older note said) only
+  asserted the substrings "current directory" and "absolute path" —
+  it never asserted the false clause, so it passed both before and
+  after and was not a safety net. Assertions pinning the corrected
+  claims had to be added, or the fix would have shipped untested.
 
-Locked decisions:
-- Print the warnings **after** the picker exits rather than before it
-  opens (project owner's decision): the smallest change that makes
-  them survivable, and it needs no new model state or view plumbing.
-  Alternatives considered and rejected for now: rendering them inside
-  the picker as a general notification surface (the existing
-  build-error banner is condition-specific, not a reusable toast, so
-  this is M-sized new state), and gating the pre-TUI print on whether
-  the TUI will launch (awkward against cobra's parse-then-run model).
-- Record as a **remaining follow-up, explicitly unproven**: the `--ui`
-  path appears to have the same gap and is arguably worse (a
-  detached/backgrounded server has no stderr at all, and no surface in
-  the browser shows warnings either). This was inferred from the
-  absence of a warnings field in the registry response DTO and no
-  warning-handling call site being found — it must be confirmed in
-  `internal/server/app.go`'s `newApplication` before anyone acts on it.
+**Verification (Phases 7–9, merged)**
+- `gofmt -l .`, `go vet ./...`, `go build ./...`, `staticcheck ./...`,
+  `go test ./... -race -count=1`, `make build-empty`, `gosec -quiet
+  ./...`, `govulncheck ./...`, and `goreleaser check` all clean on the
+  merged result, against a pre-recorded baseline captured on untouched
+  `main` **before** any work started — so any finding would have been
+  attributable rather than dismissed as pre-existing noise, a lesson
+  carried over from Phase 6.
+- `make test-e2e` was **not** run: no Docker daemon reachable locally;
+  deferred to CI's E2E workflow.
+- Process: the three phases were implemented in parallel in three
+  separate `git worktree`s on three branches, each verified in
+  isolation, then rebased and fast-forwarded into `main` in the fixed
+  order **7 → 9 → 8**, with `make verify` re-run after each merge,
+  producing six linear commits with no merge commits.
+- The file sets were fully disjoint by design, which is what made the
+  parallelism safe: Phases 8 and 9C both touch `internal/tui/view.go`,
+  so they were deliberately assigned to the **same** track rather than
+  parallelized; Phase 9A and 9B both touch `internal/cli`, so they
+  shared a track too.
+- At the time of this commit the six commits are on local `main` but
+  **not yet pushed**; CI/E2E outcomes are therefore not yet known and
+  are not claimed here.
 
-**Unit C — the filename prompt's help text is wrong.**
-`viewFilenamePrompt` (`internal/tui/view.go:463-471`) tells the user, at
-lines 465-469, that the parent directory must already exist and that
-`~` is not expanded. Both claims are false: `writeFile` in
-`internal/cli/generate.go` calls `expandPath` (which handles `~`) and
-`os.MkdirAll` before writing. Locked decision: correct the text to
-match what actually happens. `TestView_FilenamePromptDocumentsSavePathBehavior`
-(`internal/tui/view_test.go:554`) asserts the current wording and will
-need updating alongside it — note that the test is what makes this
-safe to change.
+## Locked, not yet implemented
 
 ### Phase 10 — TUI save-as-preset
 The deliberate follow-up Phase 6 deferred: Phase 6 shipped
 `--save-preset` CLI-only, and the picker still has no way to save what
 the user just assembled.
+
+Note before specing this: Phase 10 now sits on top of Phase 8's and
+Phase 9 Unit C's revised `internal/tui/view.go`, and Phase 9 Unit B's
+refactored `internal/cli/root.go`. Every file:line reference below
+predates those changes, so the line numbers have almost certainly
+drifted and must be re-verified against current `main` before anyone
+acts on them — treat them as pointers to the right file, not as
+trustworthy coordinates.
 
 Facts to record — the blocking one first:
 - **The existing filename-prompt mechanism is hardcoded to
@@ -982,6 +1000,23 @@ Locked decisions:
   word "think" while Opus 5 over-verifies.
 
 ## Deferred follow-ups
+- **`--ui` registry warnings — now confirmed, still deferred.** Phase 9
+  Unit B recorded this as "explicitly unproven, must be confirmed in
+  `internal/server/app.go`'s `newApplication` before anyone acts on
+  it." It is now confirmed: warnings never reach the web path at all.
+  There is no warnings field in `server.Options` or the `application`
+  struct, no log line, no response-DTO field, and no page surface;
+  `runUI` passes only the registry to `runServerFunc` and discards the
+  warnings. The decision to defer stands — this was never in scope for
+  Phase 9 — but it's arguably worse here than on the CLI path, since a
+  detached/backgrounded server has no stderr at all to print to.
+- **`app.css` freshness is unenforced.** No CI job regenerates
+  `app.css` and diffs it, so a template change landing without `make
+  ui-css` would silently ship stale CSS. Now cheap to add, since Phase
+  7 Unit B made `make ui-css` deterministic and a genuine no-op —
+  previously any such check would have had false positives from the
+  `.truncate` leak. Not done in this phase, to keep the blast radius
+  contained.
 - **Display-line-aware skill-list scrolling — latent, explicitly
   do-not-schedule.** Verified *unreachable* today, because the `item`
   struct (`model.go:46-52`) has exactly five fields (`isHeader`,
