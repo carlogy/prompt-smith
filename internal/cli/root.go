@@ -21,6 +21,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -29,22 +30,72 @@ import (
 )
 
 // Execute loads the registry, builds the command tree, and runs it,
-// exiting the process on error. Non-fatal problems loading user skills
-// (see registry.Load) are printed to stderr but don't stop execution.
+// exiting the process with a non-zero status on error. It's a thin
+// wrapper around run (below) so the actual behavior is testable without
+// a real os.Exit call - see run's doc comment for the warnings-timing
+// decision that's the whole reason run exists as a separate function.
 func Execute() {
+	os.Exit(run(os.Stdout, os.Stderr, os.Args[1:]))
+}
+
+// run is Execute's testable core: explicit writers and args in, an
+// exit code out, no os.Exit anywhere inside it. Nothing exercised this
+// path before (every test in this package builds its own root command
+// via newRootCmd and calls Execute() on THAT directly, bypassing
+// registry.Load and this function entirely), so pulling the warnings
+// print out of Execute without also pulling it out into something a
+// test can call would have made the new ordering unverifiable.
+//
+// Non-fatal problems loading user skills (see registry.Load) are
+// printed to stderr, but only AFTER the command tree finishes running,
+// not before it starts - a deliberate change from the original
+// ordering. The interactive picker opens an alt-screen session
+// (tea.WithAltScreen, see internal/tui/tui.go) that most terminals
+// don't restore scrollback across, so a warning printed before the
+// picker launches is gone for good the moment it appears; by the time
+// Execute used to print warnings (right after registry.Load, well
+// before newRootCmd(reg).Execute() ever runs), a malformed skill in
+// PROMPTSMITH_SKILLS_DIR was already effectively invisible to anyone
+// who ended up in the picker or the --ui web server. Printing after
+// Execute returns means the warning is the last thing left on screen
+// once whichever mode the user ran - picker, web UI, or a plain
+// non-interactive generation - has finished.
+//
+// Warnings print BEFORE the terminal error (if any), not after: a
+// command failure is the more urgent, more likely-to-be-acted-on
+// message of the two, so it belongs last, closest to the user's
+// cursor, rather than buried under a warning about something that
+// (being non-fatal) probably isn't what they're currently debugging.
+// This also means the error branch below can't just os.Exit(1)
+// immediately the way the original code did right after
+// newRootCmd(reg).Execute()'s own error check - that would swallow
+// every warning printed above it. Returning an int instead of exiting
+// keeps both prints reachable on the same path. (registry.Load's own
+// error return - the other os.Exit(1) below - is unaffected: every
+// return statement in registry.Load that carries a non-nil error also
+// carries a nil warnings slice, so there's nothing to swallow there.)
+func run(stdout, stderr io.Writer, args []string) int {
 	reg, warnings, err := registry.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	for _, w := range warnings {
-		fmt.Fprintln(os.Stderr, "promptsmith: "+w)
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
 
-	if err := newRootCmd(reg).Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	root := newRootCmd(reg)
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	root.SetArgs(args)
+	cmdErr := root.Execute()
+
+	for _, w := range warnings {
+		fmt.Fprintln(stderr, "promptsmith: "+w)
 	}
+
+	if cmdErr != nil {
+		fmt.Fprintln(stderr, cmdErr)
+		return 1
+	}
+	return 0
 }
 
 // newRootCmd builds the promptsmith root command. The root command itself
@@ -73,8 +124,9 @@ registry of skills and per-target rendering rules.`,
   promptsmith --tui                                         # interactive picker`,
 		Version: buildVersion(), // enables the --version flag cobra provides automatically
 		Args:    cobra.ArbitraryArgs,
-		// We print errors ourselves in Execute (and tests read the
-		// returned error directly), so don't let cobra double-print.
+		// We print errors ourselves (in run, or read directly by
+		// tests that call Execute() on the command they built), so
+		// don't let cobra double-print.
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

@@ -17,7 +17,13 @@
 
 package cli
 
-import "testing"
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestNewRootCmd_HasExpectedSubcommands(t *testing.T) {
 	reg := testRegistry(t)
@@ -34,5 +40,89 @@ func TestNewRootCmd_HasExpectedSubcommands(t *testing.T) {
 		if !found {
 			t.Errorf("expected subcommand %q to be registered", name)
 		}
+	}
+}
+
+// writeMalformedUserSkill drops a single malformed SKILL.md into dir,
+// laid out the same way TestLoadUserSkills's "malformed frontmatter"
+// case exercises loadUserSkills directly (see
+// internal/registry/userskills_test.go) - a file that doesn't even
+// start with the "---" frontmatter delimiter. loadUserSkills treats
+// this as a non-fatal, reportable warning rather than a load failure,
+// which is exactly the case run's warnings-after-Execute reordering
+// (see root.go) needs a real, end-to-end reproduction of.
+func writeMalformedUserSkill(t *testing.T, dir string) {
+	t.Helper()
+	skillDir := filepath.Join(dir, "testing", "broken")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s) error = %v", skillDir, err)
+	}
+	path := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(path, []byte("not frontmatter at all"), 0o600); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	}
+}
+
+// TestRun_WarningsPrintAfterCommandSucceeds pins the actual behavior
+// change this unit makes: a registry.Load warning reaches stderr, but
+// only once the command tree has already finished running - not before
+// it starts, which is what let the interactive picker's alt-screen
+// session swallow it in the original ordering (see run's doc comment
+// in root.go). "list" is used as the driven subcommand rather than a
+// generation because it's a plain, always-succeeds, no-TTY-required
+// path that doesn't itself write anything resembling the warning text
+// this test looks for, so there's no risk of a false match.
+func TestRun_WarningsPrintAfterCommandSucceeds(t *testing.T) {
+	t.Setenv("PROMPTSMITH_SKILLS_DIR", t.TempDir())
+	dir := os.Getenv("PROMPTSMITH_SKILLS_DIR")
+	writeMalformedUserSkill(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"list"})
+
+	if code != 0 {
+		t.Fatalf("run() = %d, want 0 (the command itself should still succeed), stderr = %s", code, stderr.String())
+	}
+	const wantWarning = `promptsmith: skip testing/broken/SKILL.md: missing frontmatter: expected the file to start with "---"`
+	if !strings.Contains(stderr.String(), wantWarning) {
+		t.Errorf("stderr = %q, want it to contain the malformed-skill warning %q", stderr.String(), wantWarning)
+	}
+}
+
+// TestRun_WarningsPrintBeforeTerminalError covers the other gotcha
+// this unit's spec calls out explicitly: the original code's
+// os.Exit(1) on a command failure would have skipped a warnings loop
+// placed after it, so warnings have to print on the ERROR exit path
+// too, not just the success one above - and specifically BEFORE the
+// terminal error, so the more urgent, more actionable message ends up
+// last, closest to the user's cursor (see run's doc comment).
+func TestRun_WarningsPrintBeforeTerminalError(t *testing.T) {
+	t.Setenv("PROMPTSMITH_SKILLS_DIR", t.TempDir())
+	dir := os.Getenv("PROMPTSMITH_SKILLS_DIR")
+	writeMalformedUserSkill(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	// An unknown target fails deterministically without a TTY or any
+	// other seam to stub - see TestGenerate_UnknownTargetWithNoSkills_
+	// ErrorsWithoutGoalOnlyNote in generate_test.go for the same
+	// invocation shape used as a plain non-interactive failure.
+	code := run(&stdout, &stderr, []string{"-t", "does-not-exist", "goal"})
+
+	if code != 1 {
+		t.Fatalf("run() = %d, want 1 (the command should fail on the unknown target), stderr = %s", code, stderr.String())
+	}
+
+	const wantWarning = `promptsmith: skip testing/broken/SKILL.md`
+	const wantError = `unknown target "does-not-exist"`
+	warningAt := strings.Index(stderr.String(), wantWarning)
+	errorAt := strings.Index(stderr.String(), wantError)
+	if warningAt == -1 {
+		t.Fatalf("stderr = %q, want it to contain the malformed-skill warning", stderr.String())
+	}
+	if errorAt == -1 {
+		t.Fatalf("stderr = %q, want it to contain the unknown-target error", stderr.String())
+	}
+	if warningAt > errorAt {
+		t.Errorf("warning printed at byte %d, error at byte %d - want the warning BEFORE the terminal error", warningAt, errorAt)
 	}
 }
