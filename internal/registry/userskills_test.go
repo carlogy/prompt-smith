@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -263,6 +264,97 @@ func TestLoadUserSkills(t *testing.T) {
 
 		if len(warnings) != 3 {
 			t.Errorf("len(warnings) = %d, want 3 (broken frontmatter, empty-dir, duplicate), got: %v", len(warnings), warnings)
+		}
+	})
+
+	t.Run("dot-prefixed directories are skipped silently at both levels", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			// A valid loose skill, so the walk has something to find.
+			"myskill/SKILL.md": userSkillMD("myskill", "A valid skill.", "Body."),
+			// A dot-prefixed top-level dir, shaped like a real .git
+			// tree: not a skill dir itself, so without the dot-skip
+			// it would be treated as a category and every subdir
+			// below would warn "no SKILL.md found".
+			"testing/.git/objects/placeholder.txt": &fstest.MapFile{Data: []byte("x")},
+			"testing/.git/refs/placeholder.txt":    &fstest.MapFile{Data: []byte("x")},
+			// A dot-prefixed subdir one level deeper, alongside a
+			// real skill in the same category - the sub-level skip.
+			"testing/real-skill/SKILL.md":     userSkillMD("real-skill", "Real.", "Body."),
+			"testing/.hidden/placeholder.txt": &fstest.MapFile{Data: []byte("x")},
+		}
+
+		skills, _, warnings := loadUserSkills(fsys)
+
+		if len(warnings) != 0 {
+			t.Errorf("warnings = %v, want none - dot-prefixed dirs must be skipped silently", warnings)
+		}
+		byID := make(map[string]Skill, len(skills))
+		for _, sk := range skills {
+			byID[sk.ID] = sk
+		}
+		if _, ok := byID["myskill"]; !ok {
+			t.Error(`expected "myskill" to be loaded`)
+		}
+		if _, ok := byID["real-skill"]; !ok {
+			t.Error(`expected "real-skill" to be loaded`)
+		}
+		if len(skills) != 2 {
+			t.Errorf("len(skills) = %d, want 2 (.git and .hidden must not surface as skills or warnings)", len(skills))
+		}
+	})
+
+	t.Run("SKILL.md directly at the root warns, unlike other stray files", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			"SKILL.md":  userSkillMD("orphan", "Never nested in its own dir.", "Body."),
+			".DS_Store": &fstest.MapFile{Data: []byte("x")},
+			"README.md": &fstest.MapFile{Data: []byte("x")},
+			"LICENSE":   &fstest.MapFile{Data: []byte("x")},
+		}
+
+		skills, _, warnings := loadUserSkills(fsys)
+
+		if len(skills) != 0 {
+			t.Errorf("skills = %v, want none - a root-level SKILL.md is never loaded as a skill", skills)
+		}
+		if len(warnings) != 1 {
+			t.Fatalf("warnings = %v, want exactly 1 (SKILL.md only, not .DS_Store/README.md/LICENSE)", warnings)
+		}
+		if !strings.Contains(warnings[0], "SKILL.md") {
+			t.Errorf("warnings[0] = %q, want it to mention SKILL.md", warnings[0])
+		}
+	})
+
+	t.Run("top-level directory yielding zero skills warns exactly once", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			// A category dir with no subdirectories at all - not even
+			// a broken one, so nothing else would ever warn about it.
+			"empty-category/placeholder.txt": &fstest.MapFile{Data: []byte("x")},
+		}
+
+		_, _, warnings := loadUserSkills(fsys)
+
+		if len(warnings) != 1 {
+			t.Fatalf("warnings = %v, want exactly 1", warnings)
+		}
+		if !strings.Contains(warnings[0], "empty-category") {
+			t.Errorf("warnings[0] = %q, want it to name %q", warnings[0], "empty-category")
+		}
+	})
+
+	t.Run("one good and one bad subdir warns only once, not twice", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			"mixed/good/SKILL.md": userSkillMD("good", "Loads fine.", "Body."),
+			// No SKILL.md here - already produces its own warning.
+			"mixed/bad/placeholder.txt": &fstest.MapFile{Data: []byte("x")},
+		}
+
+		skills, _, warnings := loadUserSkills(fsys)
+
+		if len(skills) != 1 {
+			t.Errorf("len(skills) = %d, want 1", len(skills))
+		}
+		if len(warnings) != 1 {
+			t.Errorf("warnings = %v, want exactly 1 (the existing \"no SKILL.md found\", not also a zero-skills warning)", warnings)
 		}
 	})
 }

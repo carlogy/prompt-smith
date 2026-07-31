@@ -130,7 +130,12 @@ func displayName(id string) string {
 // skill are reported as warnings and skipped rather than failing the
 // whole load - a single bad drop-in shouldn't take down the registry.
 // (Overriding an *embedded* skill by id is the intended override
-// mechanism - see mergeUserSkills - and never warns.)
+// mechanism - see mergeUserSkills - and never warns.) Dot-prefixed
+// directories (".git" chief among them) are skipped silently at every
+// level, since a version-controlled skills tree is a normal setup, not
+// a mistake - see the dot-skip below for why that distinction matters.
+// A stray SKILL.md at the root, and a category directory that loads no
+// skills at all, both warn instead: those two really are silent drops.
 func loadUserSkills(fsys fs.FS) (skills []Skill, categoriesInOrder []string, warnings []string) {
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
@@ -176,9 +181,46 @@ func loadUserSkills(fsys fs.FS) (skills []Skill, categoriesInOrder []string, war
 
 	for _, top := range entries {
 		if !top.IsDir() {
-			continue // stray files at the root are ignored
+			// Stray files at the root are ignored - except SKILL.md
+			// itself, which gets a dedicated warning below. This is a
+			// narrower rule than internal/preset.List, which warns on
+			// *any* stray file in the presets directory: there, a
+			// lone file is the entire unit of meaning, so anything
+			// unrecognized is almost certainly a mistake. Here, a
+			// stray file is far more likely to be something mundane
+			// that was never meant to be a skill - .DS_Store, a
+			// README, a LICENSE - so warning on all of them would be
+			// mostly noise. SKILL.md is the one name where a warning
+			// earns its keep: it's the one file whose presence at the
+			// root means a user almost certainly meant to author a
+			// skill but forgot to nest it inside its own directory,
+			// so it was silently dropped rather than loaded.
+			if top.Name() == "SKILL.md" {
+				warnings = append(warnings, "skip SKILL.md: found directly at the skills root, not inside a skill directory - ignored")
+			}
+			continue
 		}
 		name := top.Name()
+
+		// Dot-prefixed directories (.git, .DS_Store-as-dir, etc.) are
+		// skipped silently at every level of this walk. This matters
+		// because a skills tree is routinely kept under version
+		// control - version-controlling ~/.claude/skills or
+		// ~/.config/promptsmith/skills is normal, and Gemini CLI
+		// ships `gemini skills install <git-url>`, which clones one
+		// directly - so a ".git" directory sitting at the root is a
+		// normal, healthy setup, not a user error. Without this skip,
+		// ".git" would be treated as a category (it's not a skill dir
+		// itself) and every subdirectory beneath it - .git/objects,
+		// .git/refs, .git/hooks, and so on - would trigger a "no
+		// SKILL.md found" warning. Once validate.go started failing
+		// on any user-skill warning, that turned into "exit 1 on a
+		// perfectly healthy setup", which is the bug this skip exists
+		// to prevent. Do not remove it without re-checking that
+		// failure mode.
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
 
 		if hasSkillMD(fsys, name) {
 			load(name, customCategory) // loose skill dir: no category subdir
@@ -192,9 +234,13 @@ func loadUserSkills(fsys fs.FS) (skills []Skill, categoriesInOrder []string, war
 			warnings = append(warnings, fmt.Sprintf("skip %s: %v", name, err))
 			continue
 		}
+		skillsBefore, warningsBefore := len(skills), len(warnings)
 		for _, sub := range subEntries {
 			if !sub.IsDir() {
 				continue
+			}
+			if strings.HasPrefix(sub.Name(), ".") {
+				continue // see the top-level dot-skip above
 			}
 			skillDir := path.Join(name, sub.Name())
 			if !hasSkillMD(fsys, skillDir) {
@@ -202,6 +248,18 @@ func loadUserSkills(fsys fs.FS) (skills []Skill, categoriesInOrder []string, war
 				continue
 			}
 			load(skillDir, name)
+		}
+		// A category directory that loaded nothing is exactly the
+		// silent-drop failure validate.go exists to catch - unless
+		// something above already warned about why (a bad subdir, a
+		// duplicate id), in which case that warning already explains
+		// it and a second one here would just be the same problem
+		// reported twice. Comparing counts, rather than a bool set
+		// inside the sub-loop, is what makes that "already explained"
+		// check exact: it's true precisely when neither len(skills)
+		// nor len(warnings) moved.
+		if len(skills) == skillsBefore && len(warnings) == warningsBefore {
+			warnings = append(warnings, fmt.Sprintf("skip %s: directory contains no skills", name))
 		}
 	}
 

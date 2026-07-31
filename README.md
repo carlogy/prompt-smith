@@ -171,7 +171,7 @@ The root command generates a prompt; everything else is a subcommand.
 | `promptsmith [flags] <goal>` | Generate a prompt (see flags below); `<goal>` may be given positionally or via `-g`/`--goal` - the two are mutually exclusive. |
 | `promptsmith list [-t target]` | List available skills by category, optionally filtered to those supported on a target. |
 | `promptsmith presets` | List saved presets, one name per line on stdout (see [Presets](#presets)). |
-| `promptsmith validate` | Check the loaded registry's structural integrity (duplicate ids, dangling categories/refs). |
+| `promptsmith validate` | Check the merged registry (embedded + user skills): structural integrity (duplicate ids, dangling categories/refs) plus confirm every user skill actually loaded. |
 | `promptsmith version` | Print the build version. |
 
 ### Generate flags
@@ -320,7 +320,10 @@ A user skill whose `name` matches an existing skill id (built-in or
 another user skill) overrides it outright; anything else is added.
 Malformed or duplicate skills are skipped with a warning printed to
 stderr rather than failing the whole load - one bad file can't take down
-the CLI.
+the CLI. Run `promptsmith validate` to check whether any of that happened -
+unlike the normal generate path, it treats every one of those warnings
+as a failure, since its whole job is confirming nothing was silently
+dropped.
 
 ### Empty variant
 
