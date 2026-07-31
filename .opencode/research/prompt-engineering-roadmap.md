@@ -864,6 +864,13 @@ before launching the picker`).
   the user's cursor. The trap that forced the int-return: the original
   code's `os.Exit(1)` immediately after the command's error check
   would have swallowed every warning printed above it.
+- Observed during the Phase 14 manual pass and recorded here so it isn't
+  re-discovered as a bug: `--help` and `--version` output also ends with any
+  registry load warnings, for the same reason — `run()` prints them after
+  `root.Execute()` returns (`internal/cli/root.go:128-131`), and `Execute()` is
+  what serves `--help`/`--version` too. This is the same ordering `validate`'s
+  "see the warning(s) above" message (Phase 14 Unit C) depends on, and is
+  accepted as intended.
 - Covered by two new tests driving `run` directly with a real
   malformed skill in `PROMPTSMITH_SKILLS_DIR`, asserting exit code and
   the byte-offset ordering of warning vs. error in captured stderr.
@@ -1229,10 +1236,15 @@ gap.
   enterprise host, so raw job logs weren't fetchable (403); the
   `windows-latest` confirmation therefore rests on the check-run's
   `success` conclusion plus source inspection of the `runtime.GOOS !=
-  "windows"` guard, not a log grep. And **Phase 10's interactive
-  save-preset flow has no real-terminal confirmation** — it is
-  covered only by the `teatest` harness and direct-`Update` tests, so
-  a hands-on check in a real terminal remains open.
+  "windows"` guard, not a log grep. And **Phase 10's interactive save-preset
+  flow is now only partly unconfirmed.** A subsequent real-terminal pass
+  confirmed the name-entry screen (empty input, the `e.g. terse-code-reviewer`
+  placeholder, and the paragraph stating the goal is never saved), a
+  successful save end to end (`saved preset "code-review" to <path>`,
+  printed before the registry load warnings), and both file (`0o600`)
+  and directory (`0o700`) permissions. The overwrite-confirm sub-screen
+  (`savePresetConfirm`) remains unconfirmed — see the narrowed deferred item
+  below for why two attempts failed to reach it.
 
 ### Phase 13 — footer priority reorder, Tailwind checksum co-location, one retired test
 Three independent, file-disjoint units, one integration pass. Commits
@@ -1402,13 +1414,13 @@ proportionately to this phase's small blast radius (no full sweep):
 `--help`/`--version`/`list`, a piped non-interactive generate, and
 `make ui-css-check` confirmed to leave `app.css` untouched
 (`git status --porcelain` on that path empty both before and after).
-The three named tests
-(`TestShortHelp_PriorityOrderSurvivesTruncation`,
+The three named tests (`TestShortHelp_PriorityOrderSurvivesTruncation`,
 `TestFooter_StaysOneRowAtNarrowWidth`,
-`TestView_FooterAlwaysPresentRegardlessOfContent`) pass by name; the
-interactive footer itself was **not** verified in a real terminal —
-that remains a manual step (folded into the existing deferred item
-below, which now covers both the save-preset flow and this reorder).
+`TestView_FooterAlwaysPresentRegardlessOfContent`) pass by name, and the
+reordered `focusSkills` row was subsequently confirmed in a real terminal at
+width 80: all seven entries present, `esc cancel` last by convention, and Tab's
+restored full `next` label visible with no stray double space — the same
+screenshot that closes Phase 14 Unit A's skills-zone check below.
 - Each of the three commits was independently verified to build and
   pass its package's tests in an isolated `git worktree`, not merely
   diffed — the file sets were fully disjoint (`Makefile` +
@@ -1557,6 +1569,46 @@ say "see the warnings above" without repeating them because `run()`
 (root.go) prints warnings before `RunE`'s error surfaces, per Phase 9
 Unit B's deliberate warnings-then-error ordering.
 
+**Confirmed by hand in a real terminal, five scenarios run against
+`$PROMPTSMITH_SKILLS_DIR`:** malformed frontmatter produced stderr `skip
+debugging/my-checklist/SKILL.md: missing frontmatter: expected the file to
+start with "---"` followed by `registry validation failed: 1 problem(s) loading
+user skills (see the warning(s) above)`, no `registry ok` on stdout, exit 1; a
+stray `SKILL.md` sitting directly at the skills root warned and exited 1; a
+category directory containing no skills produced EXACTLY ONE warning line
+(`skip emptycat: directory contains no skills`) and exited 1, confirming the
+count-comparison guard (`internal/registry/userskills.go:262`) does not
+double-warn; the identical bad tree on the generate path emitted the hint plus
+the skip warning on stderr but still produced a prompt and exited 0 — the
+deliberate asymmetry that is the whole point of this commit, now observed
+rather than only tested; and `validate --help`'s new `Long` text rendered
+correctly for both problem classes and both directory sources.
+
+**One scenario from that pass does not count, and the reason is worth keeping
+so the mistake isn't repeated — but the dot-skip case itself is not open.**
+The `.git` dot-skip case (a version-controlled skills tree must still exit 0)
+was re-run by hand here and did print `registry ok` / exit 0 — but the shell
+running it had lost `PROMPTSMITH_SKILLS_DIR`, proven because a preset save in
+the same shell landed in `~/.config/promptsmith/presets` instead of the
+sandbox, and `~/.config/promptsmith/skills` does not exist, so `validate`
+loaded embedded skills only and never read the `.git` tree at all. `registry
+ok` is the identical output whether the dot-skip works or the directory was
+never consulted, so this particular run cannot distinguish the two — the same
+accidental-pass shape as `TestFooter_ExamplesMentionsNewlineAndTabToSubmit`
+passing before `1bd02b6` above, a green result produced by never reaching the
+code under test. That failure is confined to this one manual re-run, though:
+this same phase's scripted binary smoke-test pass (below, the "eight
+scenarios" paragraph) already exercised the identical case validly — `git
+init` inside a throwaway `PROMPTSMITH_SKILLS_DIR`, `validate` exit 0 with zero
+warnings — and its sibling scenarios in that same pass (a skill appearing in
+`list`, byte-identical MD5 generate output) independently confirm the
+sandboxed skills directory was genuinely being read there. The dot-skip guard
+is therefore already validly verified; what's durable here is the method
+warning, not an open item: any future re-check of this case must pair the
+`validate` run with evidence the directory was actually read (e.g. the skill
+appearing in `promptsmith list`), since a bare `registry ok` cannot
+distinguish a working guard from a directory that was never consulted.
+
 **Part 2 was built, then reverted — the reasoning that killed it is the
 durable output, and is now the standing rule for a recurring class of
 question.** It warned on unrecognized `SKILL.md` frontmatter keys (e.g.
@@ -1653,7 +1705,9 @@ generate producing a correct prompt; `validate` clean → `registry ok`,
 exit 0; `validate` against a skill directory missing its `SKILL.md` →
 warning on stderr, no `registry ok`, exit 1; `git init` run inside the
 skills dir → `validate` exit 0 with zero warnings (Unit C's false-
-positive guard, confirmed holding); a skill carrying extra Claude-style
+positive guard, confirmed holding — this is the scenario whose later manual
+re-run failed to actually reach the `.git` tree; see Unit C's note above); a
+skill carrying extra Claude-style
 frontmatter (`allowed-tools`, `model`, `when_to_use`) loading with zero
 warnings, appearing in `list`, and producing byte-identical (same MD5)
 generate output to an otherwise-identical skill without those keys, on
@@ -1663,11 +1717,34 @@ via `TestPreview_NoHintsSuppressesHintsBlock`,
 `TestGenerate_TUI_NoHintsFalseByDefault` rather than driven
 interactively; and `--no-hints` under `--ui` confirmed live —
 `POST /preview` returned zero `id="preview-hints"` occurrences and `/`
-still returned 200 with valid HTML. All eight matched expectations. As
-with every prior phase, **the footer and the TUI picker remain
-unverified in a real terminal** — folded into the existing deferred
-item below, which now spans three phases of footer changes plus the
-`s` save-preset flow.
+still returned 200 with valid HTML. All eight matched expectations.
+
+A follow-up real-terminal pass (22 screenshots reviewed) subsequently confirmed
+both of this phase's TUI-facing units by eye. Unit A's budget inversion held at
+every width captured: at 121 columns the descriptor truncated to 47 columns
+("Worked examples of the output you want, ideall…") with the full 72-column
+keybind hint intact through `esc unfocus` — direct confirmation the pre-fix
+budget's collapse to `help.Width = 7` here is gone; at 80 columns the
+descriptor was dropped entirely (`footerDescriptorMinWidth` behaving as
+designed, not three words of ellipsis) with the hint complete; and at 60
+columns `shouldAddItem`'s render-past-`Width` quirk fired live, caught by
+`viewFooter`'s closing `MaxWidth` clamp at exactly one row — upgrading that
+from a claim derived from measurement to a hand-observed fact. `focusSkills` at
+80 showed all seven entries with `esc cancel` last, and the four single-line
+zones (`focusGoal`/`focusContext`/`focusConstraints`/`focusRole`) at 117 and
+125 showed a clean two-space `footerSep` gap with no SGR bleed between the two
+separately-rendered halves. Width 40 was deliberately not captured by hand — it
+sits below the README's ~80x24 usable floor and is already pinned by
+`TestFooter_OneRowAndExamplesSubmitHintAcrossWidths`. Unit B's `--no-hints`
+flag was confirmed live in the picker: an identical short-goal invocation
+rendered a `Suggestions` block with the flag absent and none at all with it
+present, and hints never reappeared across subsequent recomputes; `--help`
+echoes the corrected `--tui`/`--ui` prose. The narrowed deferred item below now
+covers only the save-preset overwrite-confirm sub-screen and the `?` full-help
+overlay — Unit C's `.git` dot-skip case is not among them; it was already
+validly verified by the scripted binary smoke-test pass above, with only its
+later manual re-run invalid (see that unit's note above for the method
+warning).
 
 Each of the three commits was independently verified to build and pass
 its package's tests in an isolated `git worktree`. File sets were fully
@@ -1734,29 +1811,33 @@ phase's same limitation.
   232-246), where they drive `aria-busy` and the `role="status"`
   announcement, plus swapping the vendored asset. Revisit when 4.0.0
   goes stable.
-- **Real-terminal confirmation of the TUI's interactive flows — now
-  spans three phases plus the save-preset flow.** Phase 10's `s` flow —
-  name entry, the y/n overwrite confirm, and the actual `preset.Save`
-  call — is exercised only by the `teatest` harness and direct
-  `model.Update` calls; nothing has driven it through a real terminal by
-  hand. Phase 13's reordered footer row (both zones, and the `esc
-  cancel`-last / tightened-separator mechanics behind it) is in the same
-  position, covered by `TestShortHelp_PriorityOrderSurvivesTruncation`,
-  `TestFooter_StaysOneRowAtNarrowWidth`, and
-  `TestView_FooterAlwaysPresentRegardlessOfContent`. Phase 14 Unit A's
-  inverted footer budget (keybind-hint priority, the 20-column
-  descriptor floor, the `focusExamples`-at-width-60 `shouldAddItem`
-  overflow guard) and Unit B's `--tui --no-hints` wiring add two more
-  automated-only surfaces — covered respectively by
-  `TestFooter_OneRowAndExamplesSubmitHintAcrossWidths` and
-  `TestPreview_NoHintsSuppressesHintsBlock` plus the CLI-side
-  pass-through tests. None of this has been driven by eyes on a real
-  terminal across any of the three phases. Low risk throughout
-  (save-preset mirrors the already-proven `w` flow; both footer changes
-  are covered by tests pinning exact substrings/positions at multiple
-  widths) but still an open item, and it is growing rather than
-  shrinking — worth actually scheduling a real-terminal pass rather than
-  deferring a fourth time.
+- **Real-terminal confirmation of the TUI's interactive flows — substantially
+  closed, not growing.** A manual pass through a real terminal (22 screenshots
+  reviewed) confirmed Phase 10's `s` flow name entry, the successful save, and
+  both file/directory permissions (see that phase's note above); Phase 13's
+  reordered footer row at both zones (see that phase's note above); and Phase
+  14 Unit A's inverted footer budget across three widths (121/80/60) plus Unit B's `--tui
+  --no-hints` wiring live in the picker (see that phase's note above). What's
+  left is two narrow items, not the three-phases-wide surface this item used
+  to describe:
+  1. The save-preset **overwrite-confirm sub-screen** (`savePresetConfirm`):
+     the y/n screen, `n` bouncing back to name entry with the typed name
+     preserved (pinned decision #3), and `y` actually overwriting.
+     `existingPresets` is read exactly once, at `internal/cli/generate.go:923`,
+     before `tui.Run` — so the confirm screen only fires for a name already on
+     disk **at launch** — and two attempts both wiped the presets directory
+     immediately beforehand, so neither ever reached it. A redo must not wipe
+     it first.
+  2. The `?` **full-help overlay** (`viewHelpOverlay`/`updateHelpOverlay`):
+     never opened by hand; dismissal via both `?` and Esc unconfirmed.
+
+  The judgement here was that this item was "growing rather than shrinking" and
+  worth scheduling deliberately rather than deferring a fourth time. The pass
+  happened, and it shrank — from three phases of footer changes plus the full
+  save-preset flow down to these two items. (Unit C's `.git` dot-skip case was
+  also once counted here, but it is not deferred work: the scripted binary
+  smoke-test pass above already verified it validly, and only a later manual
+  re-run — invalid, per that unit's note above — briefly suggested otherwise.)
 - **`preset.Save` has no `ErrExists` sentinel.** See Phase 10's note
   above — a one-line addition if a caller ever needs to detect the
   already-exists case programmatically rather than by string.
