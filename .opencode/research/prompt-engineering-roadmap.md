@@ -571,6 +571,19 @@ work)**
   `#nosec G304` comments carrying that justification inline, matching
   this repo's existing convention for a confirmed gosec false positive
   (see `internal/server/browser.go`'s `#nosec G204` on `openBrowser`).
+- CI's `windows-latest` test job failed on the first push (commit
+  `0a6a5df`): `TestSave_FileAndDirModes` and
+  `TestSave_ForceFixesLooseModeOnPreexistingFile` assert exact
+  `0600`/`0700` permission bits, which Windows doesn't support (any
+  writable file/dir reports `0666`/`0777` regardless of the mode
+  passed to `OpenFile`/`MkdirAll`). Not caught locally since local
+  verification only ran on macOS. Fixed by guarding the assertions
+  with `runtime.GOOS != "windows"`, matching the existing convention
+  already used for the identical scenario in
+  `internal/cli/generate_test.go`'s `-o`/file-mode tests. Landed as a
+  second commit, `fix(preset): skip unix-only file-mode assertions on
+  windows` (`2407e65`), rather than amending `0a6a5df`, to avoid a
+  force-push.
 
 **Verification**
 - `gofmt -l .` clean; `go vet ./...` clean; `go build ./...` clean;
@@ -632,9 +645,13 @@ work)**
   orthogonal to whether the preset itself loaded warning-free; `promptsmith
   --force "some goal"` errors with `promptsmith: --force requires
   --save-preset`, exit 1. All seven matched expectations.
-- Not run (no CI push yet at verification time): the `CI` and `E2E`
-  GitHub Actions workflows. To be confirmed after this phase's commit
-  is pushed.
+- Pushed to `main` as two commits (see the windows-mode-assertion item
+  above): `feat(cli): add --save-preset to author presets from flags`
+  (`0a6a5df`) and `fix(preset): skip unix-only file-mode assertions on
+  windows` (`2407e65`). Both the `CI` and `E2E` GitHub Actions
+  workflows completed with conclusion `success` on the final commit
+  (`2407e65`); `CI` failed on `0a6a5df` alone (windows-latest only,
+  fixed by the follow-up commit), `E2E` was green on both.
 
 Deferred to a follow-up (moved to Deferred follow-ups below): a
 save-as-preset key in the TUI.
