@@ -70,9 +70,17 @@ Commit `feat(prompt): add repeatable few-shot examples input` (`648ecee`).
   1. The vendored `bubbles/textarea`'s default `CursorLine` background
      tint was deliberately left in place rather than neutralized — a
      Phase 5 polish call.
-  2. `internal/server/e2e_test.go` has no "type into a form field" flow
-     at all, so no field-level e2e selector was added for `#examples`.
-     Worth revisiting if e2e coverage of form input is ever wanted.
+  2. **Correction (found during Phase 10-12 work): this claim was
+     false.** It said `internal/server/e2e_test.go` "has no 'type into
+     a form field' flow at all." It does:
+     `TestE2E_LivePreviewUpdatesAfterDebounce`
+     (`e2e_test.go:272-304`) opens the "Optional fields" `<details>`,
+     clicks `#examples`, and calls `chromedp.SendKeys("#examples",
+     marker, chromedp.ByQuery)`, then polls for the debounced update.
+     This is the same class of error as Phase 7's 0BSD premise
+     correction — a claim stated once and never re-checked before
+     being repeated — recorded here rather than silently fixed so the
+     pattern is visible.
 
 ### Phase 2 — presets
 Commit `feat(cli): add reusable prompt presets via -p/--preset` (`12eaae0`).
@@ -321,8 +329,13 @@ grounding)**
   through `newApplication`'s parameter list. `initial` is the
   precedent for an Options field a handler needs going through the
   constructor, so this is inconsistent with it — accepted anyway
-  because the alternative adds a bare positional `bool` to four call
-  sites, three of which are tests that don't care. Documented on both
+  because the alternative adds a bare positional `bool` to five call
+  sites, four of which are tests that don't care.
+  **Correction (found during Phase 10-12 work): this had drifted from
+  five to a stale "four."** The actual call sites are `server.go`,
+  `testhelpers_test.go`, two in `page_test.go`, and `api_test.go` —
+  verified directly, not by memory. Immaterial to anything that
+  shipped; recorded only so the count is accurate. Documented on both
   sides (`application.noHints`'s comment and `Serve`'s), and the zero
   value (false = show hints) is the safe default.
 
@@ -653,8 +666,8 @@ work)**
   (`2407e65`); `CI` failed on `0a6a5df` alone (windows-latest only,
   fixed by the follow-up commit), `E2E` was green on both.
 
-Deferred to a follow-up (moved to Deferred follow-ups below): a
-save-as-preset key in the TUI.
+Deferred to a follow-up at the time: a save-as-preset key in the TUI.
+Landed as Phase 10 below.
 
 ### Phase 7 — shipped-asset hygiene
 Commits `bea8609` (`docs: add third-party license notices for vendored
@@ -857,8 +870,9 @@ before launching the picker`).
   was not simulated. Also `registry.Load`'s own error branch has no
   warnings to swallow (every error return there carries a nil
   warnings slice), so it was left as-is.
-- The `--ui` gap this unit's locked spec left "explicitly unproven" is
-  now confirmed — see the Deferred follow-ups section below.
+- The `--ui` gap this unit's locked spec left "explicitly unproven" was
+  confirmed in this pass (warnings never reached the web path at all)
+  and then closed by Phase 12 below.
 
 **Unit C — the filename prompt's help text is wrong.** Commit
 `7d3b040` (`fix(tui): correct the filename prompt's save-path help
@@ -896,96 +910,326 @@ text`).
   so they were deliberately assigned to the **same** track rather than
   parallelized; Phase 9A and 9B both touch `internal/cli`, so they
   shared a track too.
-- At the time of this commit the six commits are on local `main` but
-  **not yet pushed**; CI/E2E outcomes are therefore not yet known and
-  are not claimed here.
-
-## Locked, not yet implemented
+- **Correction (found during Phase 10-12 work): this note was
+  stale.** It originally said the six commits "are on local `main` but
+  not yet pushed; CI/E2E outcomes are therefore not yet known and are
+  not claimed here." They were pushed. `0243973` (the roadmap-update
+  commit that landed alongside them) ran all six checks that existed
+  at the time — `test` on ubuntu/macos/windows, `verify`, `e2e`,
+  `release-config` — all with conclusion `success`. That commit
+  predates Phase 11's new `ui-css-check` job, so it could not have run
+  it.
 
 ### Phase 10 — TUI save-as-preset
+Commit `7b35f47` (`feat(tui): save the assembled prompt as a preset`).
 The deliberate follow-up Phase 6 deferred: Phase 6 shipped
-`--save-preset` CLI-only, and the picker still has no way to save what
-the user just assembled.
+`--save-preset` CLI-only, and the picker still had no way to save what
+the user had just assembled.
 
-Note before specing this: Phase 10 now sits on top of Phase 8's and
-Phase 9 Unit C's revised `internal/tui/view.go`, and Phase 9 Unit B's
-refactored `internal/cli/root.go`. Every file:line reference below
-predates those changes, so the line numbers have almost certainly
-drifted and must be re-verified against current `main` before anyone
-acts on them — treat them as pointers to the right file, not as
-trustworthy coordinates.
+**Resolution of the locked flow, which was architecturally
+impossible as written.** The locked spec said the flow "must be:
+submit name → `Save(name, p, false)` → on the already-exists error,
+enter a confirm state" — a filesystem call made from inside the TUI.
+That contradicts `tui.Result`'s own doc comment, which says plainly
+that Run never performs the action itself; the caller does. The
+resolution: `internal/cli` passes `existingPresets []string` (from the
+existing read-only `preset.ListDir()` — the same path the `presets`
+subcommand already uses) into `tui.Run`, and the TUI compares
+name-to-name against that list, never touching the filesystem itself.
+Several reasons converged on this, not just the one contradiction: it
+preserves the "Run never performs the action" invariant; it leaves
+`internal/tui` with **zero** dependency on `internal/preset`, verified
+with `go list -deps`, not just a grep for the import; it avoids
+re-deriving the `dir/name+".yaml"` join and the `.yaml` extension,
+which Phase 6 established as `internal/preset`'s own invariant to own
+alone; and it means no exported `ErrExists` sentinel was needed on
+`preset.Save` at all.
 
-Facts to record — the blocking one first:
-- **The existing filename-prompt mechanism is hardcoded to
-  write-to-file, not generic.** There is a single `m.enteringFilename`
-  bool plus one `m.filenameInput` (`internal/tui/model.go:92-93`);
-  `Update` intercepts every `tea.KeyMsg` with an `if
-  m.enteringFilename` check (`model.go:347-349`), not a switch over
-  modes; and `updateFilenameInput`'s Enter branch hardcodes `Action:
-  ActionWrite` (`model.go:643-647`). So a second prompt cannot simply
-  reuse it.
-- `w`/`c`/`?` are matched as raw `tea.KeyRunes` string comparisons
-  inside `updatePicker` (`model.go:609-633`), **not** `key.Binding`s —
-  the reason is documented at `internal/tui/keys.go:19-30` (bubbletea
-  can't `key.Matches` a generic rune catch-all as one binding).
-- The `w` flow for reference: on keypress it sets `enteringFilename`,
-  builds a fresh `textinput.Model` seeded from
-  `naming.SuggestFilename(m.goal, time.Now())`, and focuses it; Enter
-  yields `Result{Action: ActionWrite, WritePath: ...}` + `tea.Quit`;
-  Esc returns to the picker without cancelling the session. `Result`
-  itself is at `internal/tui/result.go:22-37`
-  (`ActionCancel/ActionStdout/ActionCopy/ActionWrite`, fields
-  `Inputs`/`Action`/`WritePath`).
-- `internal/preset/save.go`'s `Save(name string, p *preset.Preset,
-  force bool) (string, error)` is the write path Phase 6 added; its
-  non-force branch uses `O_CREATE|O_EXCL` and returns an
-  already-exists error.
+Recorded as a deliberate non-change: `preset.Save`'s already-exists
+error is still a bare `fmt.Errorf` string, not a sentinel and not a
+wrapped `os.ErrExist`, unlike `preset.ErrNotFound`, which *is* an
+exported sentinel. Left alone because nothing in this design needs to
+detect it programmatically. One accepted wart follows from that: in a
+TOCTOU race — a preset created between the picker's existence check
+and the actual save — the user sees `Save`'s CLI-flavored "use
+`--force` to overwrite" wording surfacing from a TUI-initiated action,
+which reads oddly but is harmless. If `ListDir` fails, the CLI warns
+non-fatally on stderr and passes `nil`; safe because `Save`'s
+non-force path still uses `O_CREATE|O_EXCL` and refuses to clobber
+regardless of what the existence list said.
 
-Locked decisions:
-- **Replace the `enteringFilename` bool with a small prompt-mode enum**
-  (none / write / save-preset) as the *first* unit, landed with the
-  existing `w`-flow tests green before any new key is added.
-  Rationale: a second bool would collide at the single `Update`
-  interception point, and the enum keeps that routing to one branch
-  instead of a growing chain of ifs.
-- Add `ActionSavePreset` to `Result`, plus a `PresetName` field
-  mirroring `WritePath`.
-- **Overwrite confirmation is required, not polish.** `preset.Save`
-  refuses to overwrite without `force`, and the TUI has no flag to
-  pass, so the flow must be: submit name → `Save(name, p, false)` →
-  on the already-exists error, enter a confirm state → on confirm,
-  `Save(name, p, true)`. Record that **no confirm-dialog pattern
-  exists anywhere in this TUI today** — there is no yes/no modal to
-  mirror, only "Enter confirms" help text — so this is net-new UI and
-  the main reason the phase is M-sized rather than a mechanical copy
-  of the `w` path.
-- Record a deliberate asymmetry that must NOT be "harmonized": the
-  existing `w` write-to-file path overwrites silently by design
-  (`writeFile`'s doc comment: "same as a shell redirect would"), while
-  presets refuse without `--force` because, per `save.go`'s doc
-  comment, hand-authoring is the only way presets exist and there's no
-  recovering the clobbered copy. Two different defaults, both
-  intentional.
-- **Key is `s`** — confirmed free; only `c`, `w`, `?` and the named
-  bindings (arrows, Tab/ShiftTab, Space, Enter, Esc, PgUp/PgDown,
-  CtrlC) are taken. But the footer is a hard constraint:
-  `ShortHelp`/`FullHelp` live at `internal/tui/keys.go:112-183`, and
-  the doc comment at `keys.go:126-134` records that the `focusSkills`
-  row is **already at its 80-column budget**, guarded by
-  `TestFooter_StaysOneRowAtNarrowWidth` and
-  `TestView_FooterAlwaysPresentRegardlessOfContent`. A new hint
-  therefore requires shortening existing labels, not appending.
-- Test patterns to mirror: `internal/tui/model_test.go:321-364` drives
-  the `w` flow with direct `model.Update(tea.KeyMsg{...})` sequences
-  (no `teatest` harness); view assertions live in
-  `internal/tui/view_test.go:429`; and the CLI side needs a case
-  exercising `Action: tui.ActionSavePreset` through the `runTUIFunc`
-  spy, the pattern already used at
-  `internal/cli/generate_test.go:366/399/478/525/579`.
-- **One open design question, explicitly unresolved** and to be
-  settled when this phase is specced: whether the overwrite
-  confirmation is a y/n modal or a "press Enter again to confirm"
-  step. Both are new UI; neither has precedent in this codebase.
+**The prompt-mode seam.** New `internal/tui/promptmode.go` introduces
+`promptMode` (`promptModeNone` / `promptModeWriteFilename` /
+`promptModeSavePreset`), replacing the `enteringFilename` bool. It
+landed as its own no-behavior-change unit, with the existing
+`w`-flow tests green before any new key existed, exactly as the
+locked spec required. It routes **two** interception points, not one:
+the `tea.KeyMsg` dispatch and a `tea.MouseMsg` drop that had its own
+separate `enteringFilename` check. Worth recording: the
+overwrite-confirm sub-state is a plain `savePresetConfirm bool`, **not**
+a fourth enum member — the reason is documented directly in
+`promptmode.go`, where the sub-state is a modal-within-a-modal that
+still intercepts input at the same two `Update` points the enum
+exists to unify, so it needs no case of its own there. Also worth
+recording: during that seam-only unit, `staticcheck` flagged the
+not-yet-used `promptModeSavePreset` constant (U1000), forcing an empty
+`case` purely to keep it referenced — replaced with real handling in
+the next unit.
+
+`existingPresets` is assigned inside `Run`, **not** `newModel`,
+deliberately, to avoid touching the roughly 18 test files that call
+`newModel` directly. A test constructing a model directly has to set
+the field itself.
+
+**`Result`** gained `ActionSavePreset`, `PresetName`, and
+`OverwritePreset`. `OverwritePreset` is passed straight through as
+`Save`'s `force` argument; it is never hardcoded true, because the TUI
+only sets it when the user has explicitly confirmed the overwrite.
+
+**The confirm UI — this closes the roadmap's one explicitly-unresolved
+design question.** Resolved as **y/n**, not "press Enter again." `y`
+overwrites. `n` **and** `esc` both return to the **name prompt with
+the typed name preserved**, not to the picker — because `esc` from the
+name prompt already means "back to the picker," so collapsing the two
+would remove the user's ability to simply pick a different name
+without abandoning the save entirely. A destructive action must not
+share a keystroke with a benign one.
+
+**The name input is seeded empty**, with a placeholder (`e.g.
+terse-code-reviewer`), deliberately NOT from
+`naming.SuggestFilename(m.goal, ...)` the way the `w` flow is. A
+preset describes *how* to ask, not *what* to ask — it has no `Goal`
+field at all — so a goal-derived name would actively contradict the
+concept.
+
+**Empty-name Enter is a no-op**, and beyond non-emptiness the TUI does
+**not** validate the name any further: `internal/preset`'s own
+validation (rejecting path separators and `.`/`..`) is unexported and
+stays that package's invariant to own, so duplicating it here would
+create a second source of truth. A bad name therefore fails on the CLI
+side after the picker quits — consistent with how the existing `w`
+flow already behaves for an unwritable path.
+
+**The asymmetry was preserved, not harmonized**, exactly as the locked
+spec insisted: `w` overwrites files silently by design ("same as a
+shell redirect would," per `writeFile`'s doc comment), while presets
+refuse without explicit confirmation because hand-authoring is the
+only way presets exist and a clobbered copy is unrecoverable.
+
+`s` is dispatched via the raw `tea.KeyRunes` string switch alongside
+`c`/`w`/`?`, with a **display-only** `Save key.Binding` added to
+`keyMap` purely so the footer has a label — exactly how `k.Copy` and
+`k.Write` already work, for the reason already documented at
+`keys.go:22-32`.
+
+**The footer, which was the hard constraint.** The `focusSkills` row
+went from 77 columns to **exactly 80 of 80, with zero spare**. Trades
+made to get there: Tab's description dropped (`"next"` → `""`), Copy
+and Write folded into a single `c/w copy/write` entry (mirroring the
+existing two-keys-one-slot `↑/↓` pattern), and `s save` added.
+`move`/`select`/`ok`/`copy`/`write`/`cancel`/`enter` were all preserved
+verbatim because tests assert those exact literals.
+`TestFooter_StaysOneRowAtNarrowWidth` and
+`TestView_FooterAlwaysPresentRegardlessOfContent` pass **unmodified**.
+The fit was verified by simulating `bubbles/help@v1.0.0`'s actual
+`ShortHelpView` loop with real `lipgloss.Width` and the real `" • "`
+separator — exact, not estimated — carrying the same caveat the
+pre-existing budget already had: it doesn't account for terminals
+whose glyph-width tables disagree with `go-runewidth`. **Any future
+addition to that row now requires an explicit trade, not an append.**
+
+**CLI side.** `ActionSavePreset` is handled **before** `prompt.Build`
+and returns without ever calling it: a preset records how to ask, not
+what to ask, so it needs nothing `Build` produces, and a generation
+failure must never block a save. This mirrors `--save-preset`'s
+existing placement in `runGenerate`. It also does **not** additionally
+print the assembled prompt — the picker offers exactly one action per
+confirm, per `deliver`'s doc comment, unlike the flag-only path's
+additive `--copy`/`--out`; `--save-preset` is additive because it
+layers onto an otherwise-unrunning invocation, whereas
+`ActionSavePreset` *is* the chosen delivery.
+
+`presetFieldSpecs` gained a **third** leg, `fromInputs func(in
+prompt.Inputs, p *preset.Preset)`, plus `collectPresetFromInputs` —
+keeping Phase 6's principle that the seven-field mapping is stated
+exactly once. It sources `result.Inputs`, **not** `opts`, because the
+picker lets the user edit fields after they were seeded from `opts`,
+so `opts` is stale the moment the picker returns — the same reason
+Phase 3's lint pass lints `result.Inputs`. All seven preset fields
+were confirmed sourceable from `prompt.Inputs`.
+
+Guard test: new `TestPresetFieldSpecs_EveryEntryHasAllThreeFuncs` in
+`generate_preset_test.go`. Recorded as a deliberate wart: the older
+two-func `TestPresetFieldSpecs_EveryEntryHasBothFuncs` still lives in
+`generate_save_preset_test.go`, kept byte-untouched apart from a
+mechanical closure-signature edit, because it is Phase 6's regression
+canary. The old guard is now a redundant strict subset of the new one
+and is a candidate for retirement — see Deferred follow-ups.
+
+Tests added: 8 direct-`Update` tests, 1 view test, 1 `teatest`
+end-to-end test, and 1 footer-content test in `internal/tui`; 6
+CLI-level `TestGenerate_TUI_SavePresetAction_*` tests covering
+round-trip through the real loader with zero warnings, using
+`result.Inputs` rather than `opts`, omitting `goal` and unset fields,
+refusing without overwrite while preserving the original contents,
+overwriting successfully at `0o600` (guarded with `runtime.GOOS !=
+"windows"`, per the convention Phase 6's Windows CI failure
+established), and an invalid name surfacing the validation error
+without writing anything.
+
+### Phase 11 — enforce `app.css` freshness in CI
+Commit `35fc67a` (`ci: fail when app.css is stale relative to the
+templates`). Closes the "`app.css` freshness is unenforced" item
+carried in Deferred follow-ups since Phase 7.
+
+- `TAILWINDCSS_VERSION ?= 4.3.3` in the Makefile is now the single
+  source of truth for the pinned CLI version; a new
+  `print-tailwindcss-version` target exists purely so CI reads the
+  version back rather than duplicating it in YAML. `ui-css-check` runs
+  `ui-css` and then `git diff --exit-code` on `app.css`.
+- The check is its **own** `ui-css-check` job in `ci.yml`,
+  ubuntu-latest only — deliberately not folded into `verify` (whose
+  steps are all Go tooling and would then install Tailwind on every
+  run) and not added to the `test` matrix (macOS/Windows would need
+  platform-specific Tailwind binaries for zero extra signal).
+- CI `curl`s
+  `https://github.com/tailwindlabs/tailwindcss/releases/download/v<VERSION>/tailwindcss-linux-x64`
+  and verifies a pinned sha256 (`dc61b3ac…313a`) taken from that
+  release's own `sha256sums.txt`. **The gap here is real and worth
+  stating honestly:** that checksum is platform-specific (linux-x64)
+  and lives in the YAML, not the Makefile, so the single-source-of-truth
+  claim above does not fully extend to it — a version bump must update
+  **both** `TAILWINDCSS_VERSION` and the checksum. Flagged inline in
+  the step's own comment, and carried forward to Deferred follow-ups.
+- `ui-css`'s header comment was updated: its "not needed in CI" claim
+  had become false, and the version is no longer recorded only in
+  prose.
+- GREEN proof: `app.css`'s sha256 (`ab8260d6…ce2e`) was identical
+  before and after regeneration, and the downloaded linux-x64 v4.3.3
+  binary's sha256 matched the official `sha256sums.txt`, so CI's
+  binary is provably the same version that produced the committed
+  file. RED proof: adding `rotate-45` to `index.html`'s `<body class>`
+  made `make ui-css-check` regenerate, diff, and fail with a non-zero
+  exit.
+- **Phase 7 Unit B was this check's precondition.** Without its
+  `source(none)` plus explicit `@source` fix, this check would have
+  had false positives from the `.truncate` leak that fix retired.
+  Worth stating plainly, since it retroactively justifies why this
+  item sat deferred rather than simply forgotten.
+- No README/CONTRIBUTING note was added: there's no existing precedent
+  for documenting the `ui-css` workflow there, and the Makefile's own
+  comments already carry the explanation.
+
+### Phase 12 — surface registry warnings under `--ui`
+Commit `1eeb2dd` (`feat(server): surface registry warnings in the web
+ui`). Closes the "`--ui` registry warnings" item Phase 9 Unit B left
+deferred and Phase 9's closing note confirmed as a real, unmitigated
+gap.
+
+- **Sharpen the problem statement, because the old framing understated
+  it.** `run()` prints warnings after the command tree returns — but
+  under `--ui`, `server.Serve` blocks until the context is cancelled,
+  so on the web path those warnings only ever reached the terminal at
+  *shutdown*, long after the user had already been working in a
+  browser against a silently incomplete registry. So "it already
+  prints to the terminal" was never a real mitigation on this path,
+  quite apart from a detached server having no usable stderr at all.
+- **The plumbing hop worth recording as a deliberate deviation.**
+  Warnings ride cobra's `Command.Context()`. `run()` does
+  `root.SetContext(withWarnings(ctx, warnings))` before `Execute()`,
+  and `runUI` reads them back via `warningsFromContext(cmd.Context())`,
+  through a new unexported `warningsContextKey{}` plus
+  `withWarnings`/`warningsFromContext`. Chosen over widening
+  `newRootCmd`/`addGenerateFlags`, which roughly 90 existing test call
+  sites invoke directly. Be honest here: using context as a data
+  channel for a non-request-scoped value is generally discouraged, and
+  the reason it was accepted anyway is the call-site count, not
+  elegance — recorded explicitly so a future reader doesn't mistake
+  this for a pattern to copy elsewhere.
+- `Options.Warnings []string` → `app.warnings`, assigned in `Serve`
+  after `newApplication` and documented on both sides, following the
+  `noHints` precedent exactly (see the correction above); `newApplication`'s
+  own signature stayed untouched.
+- `logger.Warn("registry warning", "warning", w)` fires once per
+  warning at `Serve` startup — not per request.
+- A `#registry-notice` block in `index.html`, placed between
+  `</header>` and `<main>` so it precedes the form in document order,
+  gated on `{{if .RegistryWarnings}}` so no empty shell renders when
+  there's nothing to say. Rendered in `index.html` only, **never**
+  `preview.html` — registry warnings are load-time and static, while
+  `preview.html` is rebuilt on every keystroke and is the wrong
+  lifetime for them.
+- **No `role="alert"` and no `role="status"`, but for a different
+  reason than Phase 3's** — worth recording both so they don't get
+  conflated later. Phase 3's hints omit them because the form re-posts
+  every 300ms and a live region would re-announce on every keystroke.
+  This region omits them because it's present at *initial page load*,
+  so it's read in normal document order; ARIA live regions exist for
+  dynamically inserted content, and one here would be semantically
+  wrong regardless of re-announcement concerns. Pinned by
+  `TestHandleIndex_RegistryNoticeHasNoLiveRegionRole`.
+- The markup uses only utility classes already present in the
+  committed `app.css` — structural ones lifted verbatim from
+  `#preview-hints`, warning colors from `preview.html`'s error `<p>` —
+  each verified before use, so `make ui-css-check` stayed a genuine
+  no-op and this phase stayed independent of both the Tailwind
+  toolchain and of Phase 11.
+- `registry.Load`'s doc comment was updated; its "(Execute prints them
+  to stderr)" parenthetical had become incomplete now that a second
+  path exists.
+- **Two gotchas worth keeping.** `html/template` silently strips
+  literal HTML comments at render time, and auto-escapes `"` to
+  `&#34;` — a test asserting a warning string containing quotes failed
+  until it was changed to a quote-free string matching the real
+  `skip %s: no SKILL.md found` shape. And, for anyone trying to
+  reproduce a registry warning by hand: a bare top-level directory
+  with no `SKILL.md` in `PROMPTSMITH_SKILLS_DIR` is silently treated as
+  an empty *category* and emits **no** warning — the `no SKILL.md
+  found` warning only fires for a two-level `category/skill/` layout.
+
+**Verification (Phases 10-12, merged)**
+- `gofmt -l .`, `go vet ./...`, `go build ./...`, `staticcheck ./...`,
+  `go test ./... -race -count=1`, `make build-empty` plus `go vet
+  -tags empty` / `staticcheck -tags empty`, `gosec -quiet ./...`,
+  `govulncheck ./...`, `make ui-css-check`, `goreleaser check`, and
+  `make verify` — all clean, with **zero gosec/govulncheck delta**
+  against a baseline captured on untouched `main` before any work
+  began, the same attributability discipline carried from Phases 6 and
+  9. The baseline lives at `.opencode/validation/phase10-12/baseline.md`,
+  which is gitignored and therefore **local-only** — it is not, and
+  will never be, part of this repo's history.
+- `make test-e2e` was not run locally — `docker info` failed, as in
+  every prior phase; covered by CI's `E2E` workflow instead.
+- A real ldflags-version-stamped binary was smoke-tested by hand
+  across 12 scenarios against throwaway
+  `PROMPTSMITH_PRESETS_DIR`/`PROMPTSMITH_SKILLS_DIR` dirs: `--help`/
+  `--version`/`list`; the full `--save-preset` no-goal/refuse/`--force`
+  cycle with a `0o600` file in a `0o700` dir and no `goal:` key;
+  `presets` listing; `-p` round-trip with zero preset-loader warnings
+  (distinguished from the orthogonal pre-existing "no --skills given"
+  note and promptlint hint); `--force` without `--save-preset`
+  erroring; both empty-goal guarantees; `-t bogus` rejected before any
+  launch; opencode-vs-generic rendering still visibly different; the
+  malformed-skill `--ui` case showing `id="registry-notice"` and the
+  warning text, with the `logger.Warn` line appearing **at startup
+  rather than shutdown**; a clean skills dir producing no notice
+  region at all; and `--no-hints` still suppressing `#preview-hints`.
+  All 12 matched.
+- The three commits were each independently verified to build and
+  pass tests in an isolated `git worktree`, not merely diffed. The
+  `internal/cli/generate.go`/`generate_test.go` split across commits 2
+  and 3 required hunk-level staging.
+- Pushed to `main`. All **seven** checks green on `1eeb2dd`: `test` on
+  ubuntu/macos/**windows**, `verify`, **`ui-css-check` (its first-ever
+  real-runner execution)**, `e2e`, and `release-config`.
+- **Two honest limitations.** `gh` was authenticated only to an
+  enterprise host, so raw job logs weren't fetchable (403); the
+  `windows-latest` confirmation therefore rests on the check-run's
+  `success` conclusion plus source inspection of the `runtime.GOOS !=
+  "windows"` guard, not a log grep. And **Phase 10's interactive
+  save-preset flow has no real-terminal confirmation** — it is
+  covered only by the `teatest` harness and direct-`Update` tests, so
+  a hands-on check in a real terminal remains open.
 
 ## Explicitly out of scope
 - Long-context section reordering. If revisited: opt-in `--layout` flag,
@@ -1000,23 +1244,6 @@ Locked decisions:
   word "think" while Opus 5 over-verifies.
 
 ## Deferred follow-ups
-- **`--ui` registry warnings — now confirmed, still deferred.** Phase 9
-  Unit B recorded this as "explicitly unproven, must be confirmed in
-  `internal/server/app.go`'s `newApplication` before anyone acts on
-  it." It is now confirmed: warnings never reach the web path at all.
-  There is no warnings field in `server.Options` or the `application`
-  struct, no log line, no response-DTO field, and no page surface;
-  `runUI` passes only the registry to `runServerFunc` and discards the
-  warnings. The decision to defer stands — this was never in scope for
-  Phase 9 — but it's arguably worse here than on the CLI path, since a
-  detached/backgrounded server has no stderr at all to print to.
-- **`app.css` freshness is unenforced.** No CI job regenerates
-  `app.css` and diffs it, so a template change landing without `make
-  ui-css` would silently ship stale CSS. Now cheap to add, since Phase
-  7 Unit B made `make ui-css` deterministic and a genuine no-op —
-  previously any such check would have had false positives from the
-  `.truncate` leak. Not done in this phase, to keep the blast radius
-  contained.
 - **Display-line-aware skill-list scrolling — latent, explicitly
   do-not-schedule.** Verified *unreachable* today, because the `item`
   struct (`model.go:46-52`) has exactly five fields (`isHeader`,
@@ -1053,6 +1280,35 @@ Locked decisions:
   232-246), where they drive `aria-busy` and the `role="status"`
   announcement, plus swapping the vendored asset. Revisit when 4.0.0
   goes stable.
+- **Real-terminal confirmation of the TUI save-preset flow.** Phase
+  10's `s` flow — name entry, the y/n overwrite confirm, and the
+  actual `preset.Save` call — is exercised only by the `teatest`
+  harness and direct `model.Update` calls; nothing has driven it
+  through a real terminal by hand. Low risk (the mechanism is a
+  straight copy of the `w` flow's already-proven pattern) but still an
+  open item.
+- **Two Phase 10 footer cosmetics.** Tab's now-empty description
+  renders a harmless double space before its separator bullet; the
+  only freely-droppable label in the `focusSkills` row was Tab's,
+  since every other label there is a test-asserted literal, so
+  restoring "next" requires finding a different trade first. And `s`
+  is reachable from `focusPreview` too (it falls through to
+  `updatePicker`, the same as `c`/`w`) but isn't advertised in that
+  row's `ShortHelp`, which has no spare columns either. Precedent:
+  Phase 1 deferred two cosmetic items the same way.
+- **`preset.Save` has no `ErrExists` sentinel.** See Phase 10's note
+  above — a one-line addition if a caller ever needs to detect the
+  already-exists case programmatically rather than by string.
+- **The redundant two-func `presetFieldSpecs` guard test.** Phase 10's
+  `TestPresetFieldSpecs_EveryEntryHasAllThreeFuncs` strictly subsumes
+  the older `TestPresetFieldSpecs_EveryEntryHasBothFuncs` in
+  `generate_save_preset_test.go`. The old test is a candidate for
+  retirement; kept for now because it's Phase 6's regression canary.
+- **The Tailwind checksum requires a second edit on a version bump.**
+  See Phase 11's note above: `TAILWINDCSS_VERSION` lives in the
+  Makefile, but the linux-x64 sha256 CI checks it against lives in
+  `ci.yml`, so a version bump has to touch both or CI fails for the
+  wrong reason.
 
 ## Dependency notes
 Pinned `bubbletea v1.3.10` / `bubbles v1.0.0` / `lipgloss v1.1.0` are
