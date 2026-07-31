@@ -89,7 +89,7 @@ func TestGenerate_PresetWithNoGoalLaunchesTUI(t *testing.T) {
 
 	defer stubInteractive(t, true)()
 	called := false
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ tui.Options) (tui.Result, error) {
 		called = true
 		if in.Goal != "" {
 			t.Errorf("initial goal passed to the TUI = %q, want empty", in.Goal)

@@ -126,6 +126,14 @@ type model struct {
 	// which are internal/preset's own invariant to own.
 	existingPresets []string
 
+	// noHints mirrors Options.NoHints (Run's caller-supplied config,
+	// tui.go): when true, recomputePreview skips promptlint.Check
+	// entirely rather than computing findings and discarding them -
+	// the same "skip the call, don't discard the result" precedent
+	// internal/server's handlePreview sets for the web UI's own
+	// NoHints handling.
+	noHints bool
+
 	// keys/help back the footer and the "?" overlay (keys.go, view.go).
 	// keys.zone is kept in sync with focus by changeFocus - the one
 	// place focus ever changes - so help.View(m.keys) always describes
@@ -970,7 +978,10 @@ func (m model) selectedIDs() []string {
 // own styled block ABOVE the built prompt (renderHints, hints.go) -
 // still inside the viewport's own content, not a separate chrome row,
 // so computeLayout and the golden layout/footer tests it backs stay
-// untouched.
+// untouched. Unless m.noHints suppresses this: mirroring the web UI's
+// handlePreview, promptlint.Check is skipped entirely rather than
+// computed and discarded, since there's nothing --no-hints promises
+// beyond "don't show hints" that would require the findings to exist.
 func (m *model) recomputePreview() {
 	in := m.currentInputs()
 	out, err := prompt.Build(m.reg, in)
@@ -981,8 +992,10 @@ func (m *model) recomputePreview() {
 		content = errorBannerStyle.Render("Error: " + err.Error())
 	} else {
 		content = highlightTags(m.preview)
-		if hints := renderHints(promptlint.Check(m.reg, in)); hints != "" {
-			content = hints + "\n\n" + content
+		if !m.noHints {
+			if hints := renderHints(promptlint.Check(m.reg, in)); hints != "" {
+				content = hints + "\n\n" + content
+			}
 		}
 	}
 	// bubbles v1 viewport does not soft-wrap content itself, so long

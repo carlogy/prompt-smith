@@ -136,7 +136,7 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 	cmd.Flags().StringVarP(&opts.out, "out", "o", "", "write the prompt to this file instead of stdout")
 	cmd.Flags().BoolVarP(&opts.quick, "quick", "q", false, "never launch the interactive picker, even in a terminal")
 	cmd.Flags().BoolVar(&opts.tui, "tui", false, "launch the interactive picker even if --skills was given")
-	cmd.Flags().BoolVar(&opts.noHints, "no-hints", false, "suppress prompt-quality hints on stderr")
+	cmd.Flags().BoolVar(&opts.noHints, "no-hints", false, "suppress prompt-quality hints on stderr, in --tui, and in --ui")
 	cmd.Flags().BoolVar(&opts.ui, "ui", false, "launch the local web UI in your browser")
 	cmd.Flags().IntVar(&opts.port, "port", 0, "port for --ui to bind (default: an OS-assigned free port)")
 	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "with --ui, don't automatically open a browser")
@@ -938,7 +938,10 @@ func runInteractive(cmd *cobra.Command, reg *registry.Registry, opts *generateOp
 		Role:         opts.role,
 		OutputFormat: opts.outputFormat,
 		Examples:     opts.examples,
-	}, existingPresets)
+	}, tui.Options{
+		ExistingPresets: existingPresets,
+		NoHints:         opts.noHints,
+	})
 	if err != nil {
 		return err
 	}

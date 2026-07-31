@@ -305,7 +305,7 @@ func TestGenerate_PresetSeedsTUIInitialInputs(t *testing.T) {
 
 	defer stubInteractive(t, true)()
 	var gotInputs prompt.Inputs
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ tui.Options) (tui.Result, error) {
 		gotInputs = in
 		return tui.Result{Inputs: in, Action: tui.ActionCancel}, nil
 	})()

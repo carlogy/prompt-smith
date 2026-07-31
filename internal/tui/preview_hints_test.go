@@ -102,6 +102,32 @@ func TestPreview_WellFormedPromptHasNoHintsBlock(t *testing.T) {
 	}
 }
 
+// TestPreview_NoHintsSuppressesHintsBlock is the suppression
+// counterpart to TestPreview_SuccessfulBuildRendersHintsAboveThePrompt:
+// with Options.NoHints (tui.go) plumbed onto the model as m.noHints,
+// the same hint-worthy inputs - guaranteed findings via a 1-character
+// goal - must render no Suggestions block at all. This is the
+// regression test for the bug this phase fixes: recomputePreview must
+// skip promptlint.Check entirely rather than compute-then-discard, so
+// this also confirms no panic or partial render from a half-suppressed
+// path.
+func TestPreview_NoHintsSuppressesHintsBlock(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "g", Skills: []string{"diagnose"}})
+	m.noHints = true
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m2 := updated.(model)
+
+	got := stripANSI(m2.previewVP.View())
+	if strings.Contains(got, "Suggestions") {
+		t.Errorf("expected no hints block with NoHints set, got:\n%s", got)
+	}
+	if !strings.Contains(got, "diagnose body") {
+		t.Errorf("expected the built prompt to still render with NoHints set, got:\n%s", got)
+	}
+}
+
 // TestPreview_BannerAndHintsVisibleWithoutScrolling pins requirement 4:
 // GotoTop already runs on every recomputePreview, so both the error
 // banner and the hints block - now part of the viewport's own content

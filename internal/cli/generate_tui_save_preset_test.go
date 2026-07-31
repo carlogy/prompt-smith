@@ -45,7 +45,7 @@ func TestGenerate_TUI_SavePresetAction_RoundTripsThroughRealLoaderWithZeroWarnin
 	t.Setenv("PROMPTSMITH_PRESETS_DIR", dir)
 
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ tui.Options) (tui.Result, error) {
 		return tui.Result{
 			Inputs: prompt.Inputs{
 				Target:       "opencode",
@@ -119,7 +119,7 @@ func TestGenerate_TUI_SavePresetAction_UsesResultInputsNotOpts(t *testing.T) {
 	t.Setenv("PROMPTSMITH_PRESETS_DIR", dir)
 
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ tui.Options) (tui.Result, error) {
 		// Simulate the picker editing role away from what --role seeded.
 		edited := in
 		edited.Role = "edited in picker"
@@ -157,7 +157,7 @@ func TestGenerate_TUI_SavePresetAction_OmitsGoalAndUnsetFields(t *testing.T) {
 	t.Setenv("PROMPTSMITH_PRESETS_DIR", dir)
 
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ tui.Options) (tui.Result, error) {
 		return tui.Result{
 			Inputs:     prompt.Inputs{Goal: "some goal text", Role: "reviewer"},
 			Action:     tui.ActionSavePreset,
@@ -208,7 +208,7 @@ func TestGenerate_TUI_SavePresetAction_WithoutOverwriteRefusesExistingFile(t *te
 	}
 
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ tui.Options) (tui.Result, error) {
 		return tui.Result{
 			Inputs:          prompt.Inputs{Role: "attempted overwrite"},
 			Action:          tui.ActionSavePreset,
@@ -251,7 +251,7 @@ func TestGenerate_TUI_SavePresetAction_WithOverwriteSucceeds(t *testing.T) {
 	writePreset(t, dir, "collide", "role: original\n")
 
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ tui.Options) (tui.Result, error) {
 		return tui.Result{
 			Inputs:          prompt.Inputs{Role: "overwritten"},
 			Action:          tui.ActionSavePreset,
@@ -306,7 +306,7 @@ func TestGenerate_TUI_SavePresetAction_InvalidNameSurfacesValidationError(t *tes
 	t.Setenv("PROMPTSMITH_PRESETS_DIR", dir)
 
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ tui.Options) (tui.Result, error) {
 		return tui.Result{
 			Inputs:     prompt.Inputs{Role: "x"},
 			Action:     tui.ActionSavePreset,

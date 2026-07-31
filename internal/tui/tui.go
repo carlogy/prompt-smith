@@ -24,11 +24,34 @@ import (
 	"github.com/carlogy/prompt-smith/internal/registry"
 )
 
+// Options configures Run.
+type Options struct {
+	// ExistingPresets is the bare names (no ".yaml", no directory) of
+	// presets already on disk, as reported by the caller (internal/
+	// preset's listing, via internal/cli) - see model.existingPresets's
+	// doc comment for why this is a plain name list rather than a
+	// callback or a filesystem handle into internal/preset. Zero value
+	// (nil) means "no presets exist yet", which is exactly correct for
+	// a caller with nothing on disk to report.
+	ExistingPresets []string
+	// NoHints mirrors the CLI's --no-hints flag: it suppresses this
+	// picker's promptlint findings (see recomputePreview in model.go)
+	// the same way --no-hints suppresses warnLintFindings's stderr
+	// output in internal/cli/generate.go, and the same way
+	// server.Options.NoHints suppresses the web UI's findings. Without
+	// this, --tui would give --no-hints one meaning on the command
+	// line and a silent no-op under the picker - the same flag would
+	// stop meaning "I don't want hints" depending on which mode it's
+	// combined with. Zero value (false) means hints are shown,
+	// matching today's behavior before this field existed.
+	NoHints bool
+}
+
 // Run launches the interactive skill picker + live preview and returns
 // the user's finalized choice. initial seeds the goal and any optional
 // fields already supplied via flags/args, plus any skills already
 // selected (e.g. via --tui with --skills, which pre-checks them).
-// existingPresets is the bare names (no ".yaml", no directory) of
+// opts.ExistingPresets is the bare names (no ".yaml", no directory) of
 // presets already on disk, as reported by the caller (internal/preset's
 // listing, via internal/cli) - see model.existingPresets's doc comment
 // for why this is a plain name list rather than a callback or a
@@ -42,9 +65,10 @@ import (
 // captures mouse events while the TUI is open, which disables the
 // terminal's native click-drag text selection until it exits (the
 // footer's "c=copy" action covers copying the whole prompt instead).
-func Run(reg *registry.Registry, initial prompt.Inputs, existingPresets []string) (Result, error) {
+func Run(reg *registry.Registry, initial prompt.Inputs, opts Options) (Result, error) {
 	m := newModel(reg, initial)
-	m.existingPresets = existingPresets
+	m.existingPresets = opts.ExistingPresets
+	m.noHints = opts.NoHints
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	finalModel, err := p.Run()
 	if err != nil {

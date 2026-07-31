@@ -76,7 +76,7 @@ func TestGenerate_SavePresetWithNoGoalSavesAndExitsCleanly(t *testing.T) {
 
 	defer stubInteractive(t, true)()
 	called := false
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ tui.Options) (tui.Result, error) {
 		called = true
 		return tui.Result{Inputs: in, Action: tui.ActionCancel}, nil
 	})()
@@ -111,7 +111,7 @@ func TestGenerate_SavePresetWithNoGoalAndExplicitTUIStillOpensPicker(t *testing.
 
 	defer stubInteractive(t, true)()
 	called := false
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ tui.Options) (tui.Result, error) {
 		called = true
 		return tui.Result{Inputs: in, Action: tui.ActionCancel}, nil
 	})()
