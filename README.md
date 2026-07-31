@@ -269,6 +269,11 @@ delimiter `SKILL.md` frontmatter uses elsewhere in this project. Unlike
 a blank line, `---` survives examples that themselves contain blank
 lines, which multi-line input/output example pairs often do.
 
+The picker is usable from about 80x24 on up (its own fallback size
+when the terminal hasn't reported one yet); much narrower and long
+skill names in the left-hand list get truncated with a trailing `…` to
+keep the layout from breaking.
+
 ## Custom skills
 
 Beyond the built-in registry, promptsmith merges in skills from a

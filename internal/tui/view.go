@@ -214,6 +214,60 @@ func (m model) viewTarget(width int) string {
 	return lipgloss.NewStyle().MaxWidth(width - scrollbarWidth).Render(row)
 }
 
+// ellipsis marks a skill label or category header that truncateToWidth
+// had to shorten to fit the pane. Same character bubbles/help already
+// uses for its own truncation (ShortHelpView), so a squeezed row looks
+// consistent with the rest of this UI's narrow-width behavior rather
+// than introducing a second "this got cut off" convention.
+const ellipsis = "\u2026"
+
+// truncateToWidth truncates s to at most width display columns,
+// appending ellipsis when truncation occurs. Measures with
+// lipgloss.Width, not len/utf8.RuneCountInString, so multi-byte and
+// wide runes are counted correctly - the labels being truncated here
+// come from skill IDs, which can be user-supplied (PROMPTSMITH_SKILLS_
+// DIR) and carry non-ASCII names - and cuts on rune boundaries via
+// range-over-string rather than byte indices, so a truncated name
+// never splits a rune in half. A local helper rather than promoting
+// github.com/charmbracelet/x/ansi from an indirect to a direct
+// dependency (it already ships one, transitively, via lipgloss) -
+// this one function is simple enough not to justify that, and keeps
+// go.mod's require block unchanged.
+//
+// width<=0 returns "": there's no budget for even the ellipsis alone,
+// so returning empty is the graceful degradation rather than a
+// negative-length slice or a panic. When width is too small to fit
+// both the truncated text AND the ellipsis, this clips runes directly
+// (no ellipsis) rather than one or the other overflowing - the
+// degenerate case callers are expected to hit only at extreme widths.
+func truncateToWidth(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+
+	budget := width
+	suffix := ""
+	if width > lipgloss.Width(ellipsis) {
+		budget = width - lipgloss.Width(ellipsis)
+		suffix = ellipsis
+	}
+
+	var b strings.Builder
+	w := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if w+rw > budget {
+			break
+		}
+		b.WriteRune(r)
+		w += rw
+	}
+	return b.String() + suffix
+}
+
 // viewSkillList renders the "Skills" title followed by a windowed
 // slice of items (visibleWindow) sized to fit windowHeight content
 // rows, scrolling to keep the cursor visible as it moves, with a
@@ -225,18 +279,33 @@ func (m model) viewTarget(width int) string {
 // with the "[-]" marker and disabledSkillStyle's faint treatment, cursor
 // or not - landing the cursor there (deliberately possible; see
 // prevSelectable/nextSelectable) makes the row reachable and readable,
-// not "active".
+// not "active". Every row's plain text is truncated to fit width
+// (truncateToWidth) before any style is applied, so one item always
+// occupies exactly one display row - see truncateToWidth's doc comment
+// for why that matters to visibleWindow's scroll math.
 func (m model) viewSkillList(windowHeight, width int) string {
 	// -1: the "Skills" title consumes one row of the pane's content
 	// budget, leaving windowHeight-1 rows for the scrollable list.
 	listHeight := windowHeight - 1
 	visible, offset := visibleWindow(m.items, m.cursor, listHeight)
 
+	// availableRowWidth is the plain-text budget every rendered row
+	// (header or skill) must fit within: listBlock below constrains the
+	// joined lines to exactly this width. Truncating each row's plain
+	// text to this budget up front is what keeps that Width() call from
+	// ever needing to WRAP a too-long line - lipgloss.Style.Width pads
+	// short lines but wraps long ones mid-word, which is the root cause
+	// of the narrow-terminal bug this function exists to fix: once a
+	// label wrapped, one item stopped meaning one display row, which is
+	// exactly the invariant visibleWindow's scroll math depends on.
+	availableRowWidth := width - scrollbarWidth
+
 	lines := make([]string, 0, len(visible))
 	for i, it := range visible {
 		globalIndex := offset + i
 		if it.isHeader {
-			lines = append(lines, categoryHeaderStyle.Render(strings.ToUpper(it.category)))
+			header := truncateToWidth(strings.ToUpper(it.category), availableRowWidth)
+			lines = append(lines, categoryHeaderStyle.Render(header))
 			continue
 		}
 
@@ -247,19 +316,40 @@ func (m model) viewSkillList(windowHeight, width int) string {
 		case it.selected:
 			mark = "[x]"
 		}
-		line := fmt.Sprintf("%s %s", mark, it.skill.ID)
+
 		isCursor := globalIndex == m.cursor && m.focus == focusSkills
+		prefix := "  "
+		if isCursor {
+			prefix = "\u203a "
+		}
+
+		// Only the label is ever truncated - never the cursor prefix or
+		// the marker. The marker is the only non-color signal that a row
+		// is disabled ("[-]"; see disabledSkillStyle's doc comment), so
+		// losing it to truncation would defeat the accessibility rule it
+		// exists for. labelBudget floors at 0 (not negative) so a pane
+		// too narrow even for the marker still degrades gracefully - the
+		// final truncateToWidth call below, on the fully composed plain
+		// line, is what actually clips that extreme case rather than
+		// this one, which by then has already given up its whole budget.
+		overhead := lipgloss.Width(prefix) + lipgloss.Width(mark) + 1 // +1: the space between marker and label
+		labelBudget := max(availableRowWidth-overhead, 0)
+		label := truncateToWidth(it.skill.ID, labelBudget)
+
+		// Compose plain, then truncate, then style - never the other way
+		// around: styling injects ANSI escapes, and measuring or slicing
+		// an already-styled string corrupts both the width math and the
+		// escape sequences themselves.
+		plain := truncateToWidth(fmt.Sprintf("%s%s %s", prefix, mark, label), availableRowWidth)
+
+		var line string
 		switch {
 		case it.disabled:
-			prefix := "  "
-			if isCursor {
-				prefix = "\u203a "
-			}
-			line = disabledSkillStyle.Render(prefix + line)
+			line = disabledSkillStyle.Render(plain)
 		case isCursor:
-			line = cursorLineStyle.Render("\u203a " + line)
+			line = cursorLineStyle.Render(plain)
 		default:
-			line = "  " + line
+			line = plain
 		}
 		lines = append(lines, line)
 	}
