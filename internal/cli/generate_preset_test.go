@@ -328,19 +328,17 @@ func TestGenerate_PresetSeedsTUIInitialInputs(t *testing.T) {
 	}
 }
 
-// TestPresetFieldSpecs_EveryEntryHasAllThreeFuncs is the extended
-// successor of generate_save_preset_test.go's
+// TestPresetFieldSpecs_EveryEntryHasAllThreeFuncs supersedes
+// generate_save_preset_test.go's now-removed
 // TestPresetFieldSpecs_EveryEntryHasBothFuncs, covering the third
 // (fromInputs) direction added for tui.ActionSavePreset alongside the
-// original apply/collect pair. It lives here rather than editing that
-// file directly: generate_save_preset_test.go pins Phase 6's
-// --save-preset behavior and is deliberately left unmodified (the
-// original two-func guard there still holds and still passes - apply
-// and collect are unaffected by fromInputs's addition). A nil
-// fromInputs func in any entry would panic the first time
+// original apply/collect pair. A nil apply or collect func in any
+// entry would panic at runtime the first time that entry's direction
+// is exercised (applyPreset for apply, collectPresetFromOpts for
+// collect); a nil fromInputs func would likewise panic the first time
 // collectPresetFromInputs reaches it (i.e. the first real
-// ActionSavePreset save), rather than failing loudly at compile time -
-// table literals don't enforce "every field must be set".
+// ActionSavePreset save) - rather than failing loudly at compile time,
+// since table literals don't enforce "every field must be set".
 func TestPresetFieldSpecs_EveryEntryHasAllThreeFuncs(t *testing.T) {
 	for _, spec := range presetFieldSpecs {
 		if spec.apply == nil {

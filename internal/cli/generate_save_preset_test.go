@@ -464,21 +464,3 @@ func TestGenerate_SavePresetSkippedOnGoalConflict(t *testing.T) {
 		t.Errorf("expected no preset file to be written on a goal conflict, os.Stat() error = %v", err)
 	}
 }
-
-// TestPresetFieldSpecs_EveryEntryHasBothFuncs is a mechanical guard in
-// the same class as generate_preset_test.go's mistyped-flagName tests:
-// a nil apply or collect func in any entry would panic at runtime the
-// first time that entry's direction is exercised (applyPreset for
-// apply, collectPresetFromOpts for collect), rather than failing
-// loudly at compile time - table literals don't enforce "every field
-// must be set".
-func TestPresetFieldSpecs_EveryEntryHasBothFuncs(t *testing.T) {
-	for _, spec := range presetFieldSpecs {
-		if spec.apply == nil {
-			t.Errorf("presetFieldSpecs[%q].apply is nil", spec.flagName)
-		}
-		if spec.collect == nil {
-			t.Errorf("presetFieldSpecs[%q].collect is nil", spec.flagName)
-		}
-	}
-}
