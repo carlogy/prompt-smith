@@ -24,7 +24,20 @@
  * `@media (prefers-color-scheme: dark)` - exactly the automatic,
  * no-toggle behavior wanted here, so no extra config is needed for it.
  */
-@import "tailwindcss";
+/*
+ * `source(none)` disables Tailwind v4's automatic full-project
+ * content detection. Without it, Tailwind scans every file in the
+ * repo - including .go source, where an ordinary Go identifier can
+ * collide with a utility class name. E.g. truncateToWidth
+ * (internal/tui/view.go) contains the substring "truncate", so
+ * automatic detection compiled a `.truncate{...}` rule no template
+ * ever uses. Measured effect on this repo: 20 dead bare-utility
+ * rules, ~3.1KB of unused CSS. No .go file in this repo has Tailwind
+ * class names in a string literal, so there is no legitimate reason
+ * to scan them at all - the @source glob below is the complete and
+ * only source of class names this project needs scanned.
+ */
+@import "tailwindcss" source(none);
 @source "../templates/**/*.html";
 
 @theme {
