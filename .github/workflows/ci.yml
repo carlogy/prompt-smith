@@ -54,6 +54,54 @@ jobs:
           staticcheck -tags empty ./...
           gosec -quiet -tags empty ./...
 
+  # ui-css-check regenerates internal/server/assets/static/app.css
+  # (committed, embedded output) from
+  # internal/server/assets/tailwind/input.css + the templates it scans
+  # and fails if the result differs from what's committed - catching a
+  # template edit that changes which Tailwind classes are used without
+  # a corresponding `make ui-css` + commit. This is only viable because
+  # input.css's `source(none)` + explicit `@source` glob (see that
+  # file) make the compile a genuine, deterministic no-op on an
+  # unchanged tree - Tailwind's automatic content detection would
+  # otherwise scan .go files too and produce nondeterministic output.
+  # Kept out of `verify` (Go-tooling-only steps) and out of the `test`
+  # matrix (macOS/Windows would need platform-specific binaries for no
+  # extra signal) - ubuntu-latest only.
+  ui-css-check:
+    name: ui-css-check (Tailwind output freshness)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Reads TAILWINDCSS_VERSION from the Makefile - the single
+      # source of truth (see its own comment) - instead of duplicating
+      # the version number here.
+      - name: Read pinned Tailwind CLI version
+        id: tailwindcss
+        run: echo "version=$(make -s print-tailwindcss-version)" >> "$GITHUB_OUTPUT"
+
+      # Standalone CLI (https://tailwindcss.com/blog/standalone-cli),
+      # not Node/npm - this repo has no committed Node toolchain and
+      # none is needed at runtime (see the ui-css target's comment in
+      # the Makefile). TAILWINDCSS_SHA256 is the linux-x64 checksum
+      # for this exact version, from the release's own
+      # sha256sums.txt (https://github.com/tailwindlabs/tailwindcss/releases) -
+      # it's platform-specific (only relevant to this ubuntu-latest
+      # runner) and must be updated alongside any TAILWINDCSS_VERSION
+      # bump in the Makefile.
+      - name: Install Tailwind standalone CLI
+        env:
+          TAILWINDCSS_VERSION: ${{ steps.tailwindcss.outputs.version }}
+          TAILWINDCSS_SHA256: dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a
+        run: |
+          curl -sfLo /usr/local/bin/tailwindcss \
+            "https://github.com/tailwindlabs/tailwindcss/releases/download/v${TAILWINDCSS_VERSION}/tailwindcss-linux-x64"
+          echo "${TAILWINDCSS_SHA256}  /usr/local/bin/tailwindcss" | sha256sum -c -
+          chmod +x /usr/local/bin/tailwindcss
+
+      - name: make ui-css-check
+        run: make ui-css-check
+
   # test covers portability: the same source builds and passes on all
   # three OSes promptsmith ships for. fmt/vet/staticcheck/security are
   # not OS-specific here (no per-OS source files), so they're not

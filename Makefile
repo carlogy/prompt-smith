@@ -1,4 +1,4 @@
-.PHONY: fmt vet staticcheck build build-empty test test-e2e verify tidy update-golden gosec govulncheck security install install-empty ui-css release-check release-snapshot release-assert
+.PHONY: fmt vet staticcheck build build-empty test test-e2e verify tidy update-golden gosec govulncheck security install install-empty ui-css ui-css-check print-tailwindcss-version release-check release-snapshot release-assert
 
 # fmt fails (non-zero exit) if any file needs gofmt, printing which ones.
 fmt:
@@ -77,19 +77,26 @@ install:
 install-empty:
 	go install -tags empty ./cmd/promptsmith
 
+# TAILWINDCSS_VERSION pins the standalone CLI version the committed
+# app.css must be reproducible with (see its own first line,
+# "tailwindcss v4.3.3") - a different CLI version can produce
+# different output bytes for the same input, so this is the single
+# source of truth ui-css-check's CI job reads (via
+# print-tailwindcss-version below) rather than duplicating the
+# version number in .github/workflows/ci.yml. Bump it here if you
+# deliberately upgrade the CLI.
+TAILWINDCSS_VERSION ?= 4.3.3
+
 # ui-css compiles the web UI's Tailwind input into the committed,
 # embedded internal/server/assets/static/app.css - run this after
 # editing internal/server/assets/tailwind/input.css or any template
 # that changes which Tailwind classes are used, then commit the
 # regenerated app.css alongside your change. Requires the Tailwind
-# standalone CLI (https://tailwindcss.com/blog/standalone-cli) on
-# PATH as `tailwindcss` - no Node, and not needed at runtime or in CI,
-# since the built binary just embeds the already-committed output.
-# The committed app.css in this repo was generated with standalone
-# CLI v4.3.3 (see its own first line, "tailwindcss v4.3.3"); this
-# target pins no version, so a different CLI version can produce
-# different output bytes for the same input - if you regenerate with
-# a newer CLI, expect a byte-level diff even with no input.css change.
+# standalone CLI (https://tailwindcss.com/blog/standalone-cli), at
+# TAILWINDCSS_VERSION above, on PATH as `tailwindcss` - no Node. Not
+# needed at runtime (the built binary just embeds the
+# already-committed output), but CI *does* run it now, to check
+# app.css is fresh - see ui-css-check below.
 #
 # app.css itself is first-party build output, not vendored - it does
 # NOT belong in THIRD-PARTY-NOTICES.md. The two files this repo
@@ -102,6 +109,22 @@ ui-css:
 		-i internal/server/assets/tailwind/input.css \
 		-o internal/server/assets/static/app.css \
 		--minify
+
+# ui-css-check regenerates app.css and fails (via `git diff
+# --exit-code`) if the result differs from what's committed - this is
+# what actually enforces app.css freshness; ui-css alone is silent
+# about drift. Catches a template edit that changes the compiled
+# output without a corresponding `make ui-css` + commit. See
+# .github/workflows/ci.yml's ui-css-check job, which installs the
+# pinned TAILWINDCSS_VERSION CLI before running this.
+ui-css-check: ui-css
+	git diff --exit-code -- internal/server/assets/static/app.css
+
+# print-tailwindcss-version prints TAILWINDCSS_VERSION so CI can read
+# the pinned version from this one place instead of duplicating it in
+# YAML.
+print-tailwindcss-version:
+	@echo $(TAILWINDCSS_VERSION)
 
 verify: fmt vet staticcheck build test security
 	@echo "verify: all checks passed"
