@@ -1424,6 +1424,267 @@ below, which now covers both the save-preset flow and this reorder).
   again required unauthenticated `api.github.com` calls for check-run
   metadata, matching Phase 10-12's same limitation.
 
+### Phase 14 — footer hint priority, `--no-hints` reaches the TUI, `validate` stops lying
+Three independent, file-disjoint units, one integration pass. Commits
+`fix(tui): give footer keybind hints budget priority over the
+descriptor`, `fix(cli): make --no-hints reach the TUI picker`,
+`fix(cli): fail validate when a user skill was dropped`.
+
+**Unit A — the footer's descriptor-vs-keybind budget was inverted, and
+the clamp made it worse than cosmetic.** `viewFooter` gave the focused
+field's descriptor sentence (`footerDescriptorFor`) unlimited width and
+handed `help.Model` whatever columns were left over for the keybind
+hint. The Examples descriptor is 112 columns wide, so between roughly
+100-160 terminal columns `help.Width` went low enough that
+`bubbles/help` ellipsized the keybind hint — including the explanation
+of how to submit — down to nothing useful. Below ~100 columns the
+subtraction went negative and got clamped to 0.
+
+That clamp was the worse regime, not a safe floor: `bubbles/help`'s
+`shouldAddItem` (vendored at `bubbles@v1.0.0/help/help.go`) only
+truncates `if m.Width > 0` — `Width` 0 means "unbounded," not "render
+nothing." So the clamp didn't suppress the hint, it disabled
+truncation entirely: the full concatenated `ShortHelp()` string (up to
+186 columns for some zones) rendered in full and soft-wrapped onto a
+second physical row, silently violating `footerHeight`'s contract of
+exactly one row (`layout.go:36`) with zero visible signal anything was
+wrong.
+
+Why this was worse than a cosmetic nit: **Examples is the one field
+where `Enter` does not submit** — it inserts a newline into the
+textarea — and `?` does **not** open the help overlay there either;
+that handler lives in `updatePicker`, reachable only from
+`focusSkills`/`focusPreview` (`model.go` documents every other zone
+returns first), so pressing `?` in Examples types a literal `?` into
+the field. The one field with divergent Enter/`?` behavior was exactly
+the field whose explanation of that divergence was the one being
+silently deleted, with no in-app fallback to learn it any other way.
+
+Origin traced to a single commit: `648ecee` (Phase 1) introduced both
+the 112-char Examples descriptor **and** the Enter-doesn't-submit
+divergence in the same change. The hint was born unreadable at the
+same moment it became load-bearing.
+
+The fix inverts the budget: the keybind hint now gets `termWidth`
+outright (`help.Width = termWidth`, never reduced by anything), and
+the descriptor takes whatever's left via the existing `truncateToWidth`,
+dropped entirely below a 20-column legibility floor
+(`footerDescriptorMinWidth`) where a truncated sentence is mostly
+ellipsis. The descriptor's leftover budget is computed against the
+hint's **actual rendered width** (`lipgloss.Width(m.help.View(...))`),
+not the width it was merely allowed to use — `bubbles/help` doesn't pad
+short hints out to `Width`, which is what keeps `focusSkills` (78/80)
+and `focusPreview` (76/80) byte-identical to their pre-fix output, and
+lets every zone whose hint is only 21-33 columns leave 85+ columns for
+the descriptor untouched.
+
+**A new `bubbles/help` v1.0.0 finding worth keeping, found while
+building this fix:** `shouldAddItem` can render **past its own
+`Width`** — when an item would overflow but even its ellipsis wouldn't
+fit either, it gives up on truncating and appends the item in full
+anyway. Reproduced empirically at `focusExamples`, width 60: the hint
+renders at 72 columns despite `help.Width=60`. Guarded with a
+`lipgloss.MaxWidth` clamp around the whole composed row (truncate, not
+wrap — the same pattern `viewTarget` already uses), which is a second,
+independent guarantee the row never exceeds `termWidth` regardless of
+what `bubbles/help` decides internally. Latent for any zone/wording
+combination that hits that exact boundary; not something this fix
+eliminates at the library level, only guards against at the call site.
+
+**A prediction that was wrong, worth recording so it isn't re-derived:**
+the expectation going in was that the two tests asserting the full
+`fielddesc.Sentence` at width 120 would need relaxing once the budget
+inverted. Measured otherwise: most zones' hints are only 21-33 columns,
+leaving ≥85 columns for descriptors (the widest tested description is
+47), so only Examples' 112-column sentence ever truncates at width 120,
+and no existing test exercised Examples at that width. **Zero existing
+assertions changed.**
+
+`TestFooter_ExamplesMentionsNewlineAndTabToSubmit` **passed before this
+fix by accident**, and was rewritten rather than merely left green: it
+never sent a `WindowSizeMsg`, so `termWidth` stayed 0 →
+`defaultTermWidth` (80) → the old budget's subtraction went negative →
+`help.Width` clamped to 0 → nothing truncated → `strings.Contains`
+found the substring in the unwrapped overflow. It exercised the single
+pathological width where the bug's symptom happened to look like a
+pass. Replaced with a permanent
+`TestFooter_OneRowAndExamplesSubmitHintAcrossWidths`, which checks
+every zone × {40, 60, 80, 100, 120, 160, 200} for both single-row
+height and (for Examples specifically) presence of the submit hint.
+
+**Unit B — `--no-hints` never reached the TUI, and the roadmap's own
+Phase 3 claim about this was wrong.** Phase 3's entry above says
+`--no-hints` reaches "**every** surface, not just stderr," justified by
+"otherwise the flag would mean one thing on the command line and
+nothing under `--ui`." That justification was correct but the claim it
+backed was false: Phase 3 wired the CLI and the web (`--ui`) paths only.
+Phase 5 later added the TUI's hints region (`recomputePreview`
+rendering `promptlint.Check` results into the preview pane) and never
+wired `--no-hints` into it — the picker computed and rendered findings
+unconditionally regardless of the flag, for three phases, until now.
+The exact justification Phase 3 used for `--ui` applied verbatim to
+`--tui` and simply hadn't been acted on.
+
+Fixed by introducing `tui.Options{ExistingPresets, NoHints}` as `Run`'s
+third parameter, replacing the bare `existingPresets` slice rather than
+adding a fourth positional bool. `Run` had already gone from two
+parameters to three in Phase 10; a fourth would have made the next
+addition after this one even worse, so the refactor was paid once here,
+touching all 27 call sites either way since `existingPresets` already
+had to move regardless. Mirrors `server.Options`' existing convention
+for the identical problem on the web-UI side. `model.noHints` set from
+`opts.NoHints` makes `recomputePreview` skip the `promptlint.Check` call
+entirely when set, rather than computing findings and discarding them —
+the same "skip the call, don't discard the result" choice
+`internal/server`'s `handlePreview` already made for `--no-hints` under
+`--ui`.
+
+**Unit C — `validate` printed `registry ok` and exited 0 over a
+silently dropped user skill, and this is the most valuable part of the
+phase to keep.** `newValidateCmd`'s `RunE` called only `reg.Validate()`
+(structural checks: duplicate ids, dangling categories/refs) and never
+looked at any of `loadUserSkills`' warning paths. A malformed,
+unreadable, or duplicate-id user skill is correctly non-fatal on the
+generate path — one bad drop-in shouldn't take down the whole CLI — but
+that's exactly backwards for a command whose entire stated job is
+confirming nothing got silently dropped.
+
+Fixed by reading warnings off `cmd.Context()` via
+`warningsFromContext`, reusing the `withWarnings`/`warningsFromContext`
+plumbing Phase 12 already built for surfacing these same warnings under
+`--ui`, rather than inventing a second channel. The failure message can
+say "see the warnings above" without repeating them because `run()`
+(root.go) prints warnings before `RunE`'s error surfaces, per Phase 9
+Unit B's deliberate warnings-then-error ordering.
+
+**Part 2 was built, then reverted — the reasoning that killed it is the
+durable output, and is now the standing rule for a recurring class of
+question.** It warned on unrecognized `SKILL.md` frontmatter keys (e.g.
+Claude Code's `allowed-tools`, `model`, `when_to_use`). Wrong, because
+**promptsmith is a prompt-authoring tool, not an execution
+environment.** For reference-mode targets it emits `Load the <name>
+skill: <description>` and the executing agent resolves that name
+against its own skills directory, reading the full file — including all
+its extended frontmatter — itself. So the actual test for "should
+promptsmith read frontmatter field X" is **does the field inform prompt
+authoring, or tool execution?**, not "is it recognized." Authoring
+fields are candidates for future use; execution fields (`allowed-tools`,
+`model`, `effort`, `context`, `agent`, `hooks`, `paths`, `shell`) are
+ignored by design, not merely by convention or oversight.
+
+The **three-field consumption table**, worth keeping so this isn't
+re-derived a fourth time: frontmatter `name` → `Skill.ID` (the string
+that ends up in the emitted reference line); `description` →
+`Skill.WhenToUse` (the text after the colon in that same line); the
+markdown body → `Skill.Body`, consumed **only** by the inline `generic`
+target and never read in reference mode (`build.go:113-121`). A skill
+with valid frontmatter and an empty body therefore works for every
+reference target and fails only on `generic`. Verified on a real
+binary: a 17-field skill and a 2-field skill (same `name`/`description`,
+different bodies) produced byte-identical output on `opencode`.
+
+The **Agent Skills specification's six frontmatter fields**, recorded
+so this doesn't get re-derived either: `name` (required, 1-64 chars,
+`^[a-z0-9]+(-[a-z0-9]+)*$`, must match the parent directory name),
+`description` (required, 1-1024 chars), `license`, `compatibility`
+(≤500 chars), `metadata` (an arbitrary string map — the spec's own
+sanctioned escape hatch for exactly this kind of extension),
+`allowed-tools` (marked experimental in the spec itself). opencode
+implements five of the six and documents "unknown frontmatter fields
+are ignored." Codex requires only `name`+`description` and puts its own
+config in a sidecar `agents/openai.yaml` file, not frontmatter at all.
+Claude Code is the sole large extender, at 17 versioned fields. Warning
+on unknown keys would have fought both the spec's own `metadata`
+provision and the ecosystem's stated, documented behavior.
+
+**A false positive discovered inside Part 1 itself, and fixed there:**
+the directory walk filtered only on `IsDir()`, so a version-controlled
+skills tree — a normal setup; Gemini CLI ships `gemini skills install
+<git-url>`, which clones one directly, so this is not hypothetical —
+had its `.git` directory treated as a skill category, and every
+subdirectory beneath it (`.git/objects`, `.git/refs`, `.git/hooks`, ...)
+triggered a `no SKILL.md found` warning. Once Part 1 makes `validate`
+fail on any warning, that meant **exit 1 on a completely healthy
+setup**. Dot-prefixed directories are now skipped silently at both the
+top level and inside each category, with a comment at the skip naming
+this exact failure mode so a future edit doesn't remove it blind.
+
+Two genuinely silent layout mistakes now warn, closing the actual hole
+in Part 1's promise: a `SKILL.md` sitting directly at the skills root
+(not nested in its own directory — almost certainly a forgotten
+`mkdir`), and a top-level category directory that loads zero skills.
+Both false-positive guards are worth keeping: only the exact name
+`SKILL.md` warns at the root, **not** every stray file there — a
+deliberate contrast with `internal/preset.List`, which *does* warn on
+any stray file, because there the file itself is the whole unit of
+meaning, whereas a stray `.DS_Store` or `README` here is mundane noise.
+The zero-skills warning fires only when neither the running skill count
+nor the running warning count moved during that category's walk, so a
+category holding one good and one bad skill warns once (for the bad
+one), not twice.
+
+**Correcting another assumption made going in:** the expectation was
+that `PROMPTSMITH_SKILLS_DIR=~/.claude/skills` would silently load
+nothing, because promptsmith wants a two-level
+`<category>/<skill>/SKILL.md` layout. Measured wrong — **both layouts
+are supported**: a one-level `<skill>/SKILL.md` lands in a catch-all
+`custom` category, and two-level `<category>/<skill>/SKILL.md` uses the
+directory name as the category. An existing Claude Code or opencode
+skills tree drops in unmodified. The README already documents this
+accurately; worth stating positively here anyway, because it's a real
+adoption fact that nothing currently advertises to a user deciding
+whether to try promptsmith against a skills tree they already have.
+
+**Verification.** `gofmt -l .`, `go vet ./...`, `go build ./...`,
+`staticcheck ./...`, `go test ./... -race -count=1`, `make build-empty`
+plus `go vet -tags empty ./...`/`staticcheck -tags empty ./...`,
+`gosec -quiet ./...`, `govulncheck ./...`, `make ui-css-check`,
+`goreleaser check`, and `make verify` all clean, with **zero
+gosec/govulncheck delta** against the Phase 10-12 baseline
+(`.opencode/validation/phase10-12/baseline.md`, local-only) — both were
+already clean there, and stayed clean here. `make test-e2e` was not run
+locally — `docker info` failed (no daemon reachable), as in every prior
+phase; covered by CI's `E2E` workflow instead.
+
+A real ldflags-version-stamped binary was smoke-tested by hand against
+throwaway `PROMPTSMITH_SKILLS_DIR`/`PROMPTSMITH_PRESETS_DIR` dirs across
+eight scenarios: `--help`/`--version`/`list`; a piped non-interactive
+generate producing a correct prompt; `validate` clean → `registry ok`,
+exit 0; `validate` against a skill directory missing its `SKILL.md` →
+warning on stderr, no `registry ok`, exit 1; `git init` run inside the
+skills dir → `validate` exit 0 with zero warnings (Unit C's false-
+positive guard, confirmed holding); a skill carrying extra Claude-style
+frontmatter (`allowed-tools`, `model`, `when_to_use`) loading with zero
+warnings, appearing in `list`, and producing byte-identical (same MD5)
+generate output to an otherwise-identical skill without those keys, on
+the `opencode` reference target; `--tui --no-hints` confirmed by name
+via `TestPreview_NoHintsSuppressesHintsBlock`,
+`TestGenerate_TUI_PassesNoHintsThroughToOptions`, and
+`TestGenerate_TUI_NoHintsFalseByDefault` rather than driven
+interactively; and `--no-hints` under `--ui` confirmed live —
+`POST /preview` returned zero `id="preview-hints"` occurrences and `/`
+still returned 200 with valid HTML. All eight matched expectations. As
+with every prior phase, **the footer and the TUI picker remain
+unverified in a real terminal** — folded into the existing deferred
+item below, which now spans three phases of footer changes plus the
+`s` save-preset flow.
+
+Each of the three commits was independently verified to build and pass
+its package's tests in an isolated `git worktree`. File sets were fully
+disjoint (`internal/tui/view.go` + `footer_test.go` + `examples_test.go`;
+`internal/tui/tui.go` + `model.go` + `preview_hints_test.go` +
+`internal/cli/generate.go` + five CLI test files; `internal/cli/validate.go`
++ `validate_test.go` + `internal/registry/userskills.go` +
+`userskills_test.go` + `README.md`), confirmed via `git status` before
+staging — no hunk-level staging was needed for any of the three.
+
+Pushed to `main`. All seven CI/E2E jobs completed with conclusion
+`success`: `test` on ubuntu/macos/**windows**, `verify`,
+**`ui-css-check`**, `e2e`, and `release-config`. `gh` was again
+authenticated only to an enterprise host, so check-run metadata came
+from unauthenticated `api.github.com` calls, matching every prior
+phase's same limitation.
+
 ## Explicitly out of scope
 - Long-context section reordering. If revisited: opt-in `--layout` flag,
   default unchanged.
@@ -1473,34 +1734,86 @@ below, which now covers both the save-preset flow and this reorder).
   232-246), where they drive `aria-busy` and the `role="status"`
   announcement, plus swapping the vendored asset. Revisit when 4.0.0
   goes stable.
-- **Real-terminal confirmation of the TUI's interactive flows.** Phase
-  10's `s` flow — name entry, the y/n overwrite confirm, and the
-  actual `preset.Save` call — is exercised only by the `teatest`
-  harness and direct `model.Update` calls; nothing has driven it
-  through a real terminal by hand. Phase 13's reordered footer row
-  (both zones, and the `esc cancel`-last / tightened-separator
-  mechanics behind it) is in the same position — covered by
-  `TestShortHelp_PriorityOrderSurvivesTruncation`,
+- **Real-terminal confirmation of the TUI's interactive flows — now
+  spans three phases plus the save-preset flow.** Phase 10's `s` flow —
+  name entry, the y/n overwrite confirm, and the actual `preset.Save`
+  call — is exercised only by the `teatest` harness and direct
+  `model.Update` calls; nothing has driven it through a real terminal by
+  hand. Phase 13's reordered footer row (both zones, and the `esc
+  cancel`-last / tightened-separator mechanics behind it) is in the same
+  position, covered by `TestShortHelp_PriorityOrderSurvivesTruncation`,
   `TestFooter_StaysOneRowAtNarrowWidth`, and
-  `TestView_FooterAlwaysPresentRegardlessOfContent`, but not by eyes on
-  a real terminal. Low risk in both cases (save-preset is a straight
-  copy of the `w` flow's already-proven pattern; the footer reorder is
-  covered by three tests including one that pins exact substring
-  presence and position at multiple widths) but still an open item.
+  `TestView_FooterAlwaysPresentRegardlessOfContent`. Phase 14 Unit A's
+  inverted footer budget (keybind-hint priority, the 20-column
+  descriptor floor, the `focusExamples`-at-width-60 `shouldAddItem`
+  overflow guard) and Unit B's `--tui --no-hints` wiring add two more
+  automated-only surfaces — covered respectively by
+  `TestFooter_OneRowAndExamplesSubmitHintAcrossWidths` and
+  `TestPreview_NoHintsSuppressesHintsBlock` plus the CLI-side
+  pass-through tests. None of this has been driven by eyes on a real
+  terminal across any of the three phases. Low risk throughout
+  (save-preset mirrors the already-proven `w` flow; both footer changes
+  are covered by tests pinning exact substrings/positions at multiple
+  widths) but still an open item, and it is growing rather than
+  shrinking — worth actually scheduling a real-terminal pass rather than
+  deferring a fourth time.
 - **`preset.Save` has no `ErrExists` sentinel.** See Phase 10's note
   above — a one-line addition if a caller ever needs to detect the
   already-exists case programmatically rather than by string.
-- **`focusExamples`'s footer row is tight at wide terminals too, for a
-  different reason than the skills/preview rows.** Found while
-  measuring Phase 13's column budgets, out of scope for that phase:
-  this zone's footer descriptor sentence (`footerDescriptorFor`) is
-  long enough that `help.Width` is already at or near zero by 120
-  columns, squeezing out its own keybind hints before truncation ever
-  gets a chance to prioritize between them. The descriptor-to-keybind
-  gap here is `viewFooter`'s own fixed `"  "` literal, not
-  `ShortSeparator` — so Phase 13's separator tightening does not touch
-  this zone's problem at all, and any fix belongs to a different code
-  path than the one this phase changed.
+  Re-verified as still true and still unneeded on 2026-07-31 (see
+  `.opencode/research/deferred-decisions-reverify-2026-07-31.md`, local-
+  only): still exactly one production caller, still no code anywhere
+  branches on the specific already-exists case.
+- **`when_to_use` is a precedence decision, not a new frontmatter read.**
+  Phase 14 Unit C confirmed promptsmith's `Skill.WhenToUse` slot is
+  already fed by frontmatter `description`, and Claude Code's
+  `when_to_use` field is a different key carrying materially the same
+  kind of information. Any future work here is "which of two present
+  keys wins, and does one need renaming/aliasing," not "read a field
+  promptsmith currently ignores" — a narrower, cheaper question than it
+  might sound like from the name alone.
+- **The Agent Skills spec's `name`/`description` validation rules are
+  spec-anchored and stable, but enforcing them now would reject skills
+  that load successfully today.** Phase 14 Unit C recorded the spec's
+  exact rules (`name`: 1-64 chars, `^[a-z0-9]+(-[a-z0-9]+)*$`, must match
+  the parent directory; `description`: 1-1024 chars) without adding any
+  enforcement of them. `loadUserSkills` currently accepts any non-empty
+  `name`/`description` regardless of shape. Adding spec conformance
+  would be a breaking change for any skill already relying on the
+  looser current behavior (e.g. a `name` with an underscore, or one that
+  doesn't match its directory) — worth doing deliberately, with its own
+  warning/migration story, not folded into an unrelated future change.
+- **User skills never populate `Order` or `Refs`.** `loadUserSkills`
+  constructs every `Skill` with the zero value for both fields
+  (`registry.go:41`, `:46-50`), confirmed by reading the construction
+  site directly. Practical consequence: a user skill always sorts by id
+  alone within its category (since `Order` ties at 0 for every one of
+  them — `registry.go:119-120`), and can never carry a per-target
+  reference-name override the way an embedded skill can via `Refs`. Not
+  a bug — nothing in the user-skill frontmatter shape currently offers a
+  place to set either — but a real gap if a user skill ever needs either
+  capability; would need a new frontmatter field for each, and each is
+  its own `metadata`-vs-first-class-field decision to make deliberately.
+- **Gemini CLI is being replaced by Antigravity CLI**, which affects
+  `internal/registry/data/targets.yaml`'s `gemini-cli` target entry.
+  Flagged here rather than acted on: the replacement's actual CLI
+  surface, invocation convention, and whether it's a rename versus a
+  genuinely different tool were not verified as part of Phase 14 and
+  need their own research pass before `targets.yaml` changes shape.
+- **Adoption friction beyond what's in scope for any single code
+  change**, written up fully in
+  `.opencode/research/adoption-friction.md` (local-only): no
+  package-manager distribution (no brew/apt/nix/scoop tap, confirmed
+  absent from the repo and `.goreleaser.yaml`); `--help`'s Short/Long/
+  Example prose never mentions `--ui`, `--save-preset`, or custom user
+  skills at all — they're only discoverable via the flag table cobra
+  auto-generates, not the prose a user reads first; the empty build
+  variant has no runtime notice pointing an empty-variant user at
+  `PROMPTSMITH_SKILLS_DIR` — that guidance exists only in README, never
+  printed by the binary itself; and no `CONTRIBUTING.md` anywhere in the
+  repo. None of these are wrong per se — README itself is accurate and
+  thorough — the gap is discoverability from the tool at runtime, not
+  documentation completeness.
 
 ## Dependency notes
 Pinned `bubbletea v1.3.10` / `bubbles v1.0.0` / `lipgloss v1.1.0` are
@@ -1515,7 +1828,14 @@ that phase's note and `.opencode/research/charm-v2-migration-surface.md`
 for the full surface (confined to `internal/tui`; several sites are
 non-mechanical, notably the `tea.MouseMsg`→four-message-type split and
 the unconfirmed v2 successor to the pinned `charmbracelet/x/exp/teatest`
-harness).
+harness). **Re-confirmed in Phase 14, and worth stating plainly so it
+isn't re-litigated:** `bubbles/v2@v2.1.1`'s `help.ShortHelpView` runs
+the **same algorithm** as v1.0.0 — same loop, same `shouldAddItem`
+ellipsis-then-`break`, no priority system, no responsive dropping of
+individual entries. Unit A's footer fix needed none of what v2 would
+have offered, because v2 offers nothing new here; a v2 migration stays
+declined, and the reasoning stays in the file linked above rather than
+being re-derived.
 
 ## Retained research files
 - `.opencode/research/ui-web-server.md` — retained deliberately as an
@@ -1529,3 +1849,15 @@ harness).
   upgrade" is a predictable suggestion), and this file is the
   measured answer for why that's not a quick win, so the analysis
   doesn't need re-deriving from scratch next time it comes up.
+- `.opencode/research/adoption-friction.md` — retained deliberately
+  (local-only, gitignored): the full audit backing the "Adoption
+  friction" deferred item above — README structure, distribution,
+  `--help` discoverability, first-run experience, and custom-skill
+  authoring — so a future push on any of those doesn't re-derive the
+  same survey from scratch.
+- `.opencode/research/deferred-decisions-reverify-2026-07-31.md` —
+  retained deliberately (local-only, gitignored): re-verifies three
+  previously-deferred decisions (display-line-aware scrolling,
+  `preset.ErrExists`, and one more) against `main` post-Phase-13 and
+  does a bounded fresh-eyes gap scan. Cited above where it backs a
+  specific re-confirmed claim.
