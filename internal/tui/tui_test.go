@@ -85,6 +85,39 @@ func TestModel_EndToEnd_WThenTypeThenEnterConfirmsWrite(t *testing.T) {
 	}
 }
 
+// TestModel_EndToEnd_SThenTypeThenEnterConfirmsSavePreset is the "s"
+// flow's teatest counterpart to
+// TestModel_EndToEnd_WThenTypeThenEnterConfirmsWrite - the only
+// automated proof that the whole save-as-preset state machine (name
+// entry -> Enter -> ActionSavePreset) survives a real Bubble Tea
+// program loop, not just direct Update calls. Unlike the "w" flow,
+// there's no pre-filled suggestion to clear first (see
+// presetNameInput's doc comment in model.go), so typing starts from a
+// genuinely empty field.
+func TestModel_EndToEnd_SThenTypeThenEnterConfirmsSavePreset(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal", Skills: []string{"diagnose"}})
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	tm.Type("my-preset")
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+
+	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+
+	final := tm.FinalModel(t).(model)
+	if final.result.Action != ActionSavePreset {
+		t.Errorf("Action = %v, want ActionSavePreset", final.result.Action)
+	}
+	if final.result.PresetName != "my-preset" {
+		t.Errorf("PresetName = %q, want %q", final.result.PresetName, "my-preset")
+	}
+	if final.result.OverwritePreset {
+		t.Error("expected OverwritePreset to be false for a name not in existingPresets")
+	}
+}
+
 func TestModel_EndToEnd_EscCancelsWithoutTypingAnything(t *testing.T) {
 	reg := fixtureRegistry()
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})

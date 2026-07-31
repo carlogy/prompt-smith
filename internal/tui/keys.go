@@ -55,11 +55,17 @@ type keyMap struct {
 	PgDown   key.Binding
 	CtrlC    key.Binding
 
-	// Copy/Write/Help are display-only (see the doc comment above):
-	// their Keys() are never fed to key.Matches, only their Help()
-	// text is ever read, by ShortHelp/FullHelp below.
+	// Copy/Write/Save/Help are display-only (see the doc comment
+	// above): their Keys() are never fed to key.Matches, only their
+	// Help() text is ever read, by ShortHelp/FullHelp below. "s" is
+	// dispatched the same way "c"/"w" are - a plain tea.KeyRunes
+	// comparison in updatePicker's `case tea.KeyRunes:` branch (see
+	// updateSavePresetInput) - for the same reason given above: it's a
+	// single bare rune, not expressible as a key.Matches binding
+	// alongside a generic KeyRunes catch-all.
 	Copy  key.Binding
 	Write key.Binding
+	Save  key.Binding
 	Help  key.Binding
 }
 
@@ -88,6 +94,7 @@ func newKeyMap() keyMap {
 		CtrlC:  key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel")),
 		Copy:   key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
 		Write:  key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "write")),
+		Save:   key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "save")),
 		Help:   key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	}
 }
@@ -125,13 +132,33 @@ func (k keyMap) ShortHelp() []key.Binding {
 		// such width constraint - ShortHelp already omits other real
 		// bindings per zone this same way (e.g. CtrlC isn't listed
 		// here either, despite Esc/CtrlC both canceling).
+		//
+		// Adding "s save" (below) re-hit that same 80-col ceiling, so
+		// two existing entries were shortened rather than appending
+		// past it: Tab's desc drops from "next" to "" (Tab's action
+		// isn't asserted anywhere in this zone's tests - only
+		// "move"/"select"/"ok" are, per TestFooter_ReflectsFocusedZone
+		// - so there's nothing pinning that word here, unlike
+		// "copy"/"write"/"cancel" below, which the same tests DO
+		// assert and which is why those keep their full desc text
+		// instead of being dropped the same way), and Copy+Write fold
+		// into one combined entry ("c/w copy/write") the same way
+		// Up+Down already fold into "\u2191/\u2193" - two keys sharing
+		// one visual slot, not a wording cut. Together that's exactly
+		// enough room for "s save" at exactly 80 columns - measured,
+		// not estimated (go run against a copy of bubbles/help's own
+		// ShortHelpView loop, since m.help.Width is set to termWidth
+		// with no width-hungry descriptor for this zone - see
+		// footerDescriptorFor("") and viewFooter's sep math). There is
+		// currently zero slack left in this row; widening it further
+		// needs the same kind of trade, not a plain append.
 		return []key.Binding{
 			withLabel(k.Up, "\u2191/\u2193", "move"),
 			k.Space,
-			withLabel(k.Tab, "tab", "next"),
+			withLabel(k.Tab, "tab", ""),
 			withLabel(k.Enter, "enter", "ok"),
-			k.Copy,
-			k.Write,
+			key.NewBinding(key.WithKeys("c", "w"), key.WithHelp("c/w", "copy/write")),
+			k.Save,
 			withLabel(k.Esc, "esc", "cancel"),
 		}
 	case focusPreview:
@@ -188,6 +215,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 			withLabel(k.Enter, "enter", "confirm (stdout) / insert newline in examples"),
 			k.Copy,
 			k.Write,
+			withLabel(k.Save, "s", "save as preset"),
 		},
 		{
 			withLabel(k.PgUp, "pgup/pgdn", "page skill list / preview"),

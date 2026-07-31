@@ -27,6 +27,7 @@ const (
 	ActionStdout
 	ActionCopy
 	ActionWrite
+	ActionSavePreset
 )
 
 // Result is what Run returns: the finalized inputs plus what to do with
@@ -37,4 +38,11 @@ type Result struct {
 	Inputs    prompt.Inputs
 	Action    Action
 	WritePath string // set when Action == ActionWrite
+
+	PresetName string // set when Action == ActionSavePreset
+
+	// OverwritePreset is set only when the user explicitly confirmed
+	// overwriting an existing preset. The caller passes it straight
+	// through as preset.Save's force argument.
+	OverwritePreset bool
 }

@@ -89,8 +89,42 @@ type model struct {
 	preview   string
 	previewVP viewport.Model
 
-	enteringFilename bool
-	filenameInput    textinput.Model
+	// mode gates which modal text-entry prompt (if any) intercepts
+	// input ahead of the normal picker/field dispatch - see
+	// promptMode's doc comment (promptmode.go) for why this is one
+	// enum rather than one bool per prompt.
+	mode          promptMode
+	filenameInput textinput.Model
+
+	// presetNameInput is promptModeSavePreset's name-entry field,
+	// mirroring filenameInput's role for promptModeWriteFilename.
+	// Unlike filenameInput (seeded from naming.SuggestFilename), this
+	// is always seeded empty - see the "s" case in updatePicker for
+	// why a goal-derived suggestion would actively contradict what a
+	// preset is for.
+	presetNameInput textinput.Model
+
+	// savePresetConfirm is true while promptModeSavePreset is showing
+	// the overwrite-confirm screen (the typed name collided with
+	// existingPresets) rather than the name-entry screen. This is a
+	// plain bool, not a fourth promptMode value, because it's a
+	// sub-state of the SAME modal prompt: both screens intercept input
+	// at exactly the same two places in Update that promptMode exists
+	// to unify (see updateSavePresetInput), so only that one handler -
+	// not Update itself - needs to distinguish between them.
+	savePresetConfirm bool
+
+	// existingPresets is the bare names (no ".yaml", no directory) of
+	// presets already on disk, supplied by the caller (internal/cli)
+	// via Run. Plain data, not a callback or filesystem handle: this
+	// package must not import internal/preset (see Result's doc
+	// comment on the caller-performs-the-action invariant), so it
+	// can't resolve "does this name already exist" itself - the
+	// caller resolves that once, up front, and hands over the answer
+	// as a name list. Compared name-to-name only (updateSavePresetInput)
+	// - never reconstructed into a path or a ".yaml" filename, both of
+	// which are internal/preset's own invariant to own.
+	existingPresets []string
 
 	// keys/help back the footer and the "?" overlay (keys.go, view.go).
 	// keys.zone is kept in sync with focus by changeFocus - the one
@@ -355,8 +389,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recomputePreview()
 		return m, nil
 	case tea.KeyMsg:
-		if m.enteringFilename {
+		switch m.mode {
+		case promptModeWriteFilename:
 			return m.updateFilenameInput(msg)
+		case promptModeSavePreset:
+			return m.updateSavePresetInput(msg)
 		}
 		if m.help.ShowAll {
 			return m.updateHelpOverlay(msg)
@@ -385,9 +422,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.updatePicker(msg)
 	case tea.MouseMsg:
-		// Ignored entirely while the filename modal is up - the split
-		// view (and its geometry) isn't on screen then.
-		if m.enteringFilename {
+		// Ignored entirely while any modal text-entry prompt is up
+		// (mode != promptModeNone) - the split view (and its
+		// geometry) isn't on screen then. A single "!= None" check
+		// here, rather than one check per mode, means a future mode
+		// (e.g. promptModeSavePreset) is covered automatically and
+		// doesn't need its own line added here.
+		if m.mode != promptModeNone {
 			return m, nil
 		}
 		// Deliberately not delegated to previewVP.Update(msg): its
@@ -629,10 +670,31 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.goalIsEmpty() {
 				return m, nil
 			}
-			m.enteringFilename = true
+			m.mode = promptModeWriteFilename
 			m.filenameInput = textinput.New()
 			m.filenameInput.SetValue(naming.SuggestFilename(m.goal, time.Now()))
 			m.filenameInput.Focus()
+		case "s":
+			// Deliberately NOT gated on goalIsEmpty the way "c"/"w"
+			// are: those two copy/write a fully BUILT prompt, which
+			// needs a goal to be worth producing at all (goalIsEmpty's
+			// own doc comment) - but a preset never stores the goal
+			// (see presetNameInput's doc comment in model.go), so
+			// there is nothing here for an empty goal to block. A user
+			// should be able to save a role/context/skills preset
+			// before ever deciding what today's goal is.
+			m.mode = promptModeSavePreset
+			m.savePresetConfirm = false
+			m.presetNameInput = textinput.New()
+			// Placeholder only, per pinned decision #4: never seeded
+			// from the goal (naming.SuggestFilename), since a preset
+			// describes *how* to ask, not *what* to ask - a
+			// goal-derived name would misleadingly suggest the goal is
+			// part of what gets saved. The placeholder hints at a
+			// filename-safe naming convention instead of leaving the
+			// field showing nothing.
+			m.presetNameInput.Placeholder = "e.g. terse-code-reviewer"
+			m.presetNameInput.Focus()
 		case "?":
 			// Only reachable here (updatePicker), which - per model's
 			// Update switch above - is only ever called with
@@ -660,13 +722,129 @@ func (m model) updateFilenameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Esc):
 		// Abandon the write, return focus to the picker - not a full
 		// cancel of the whole TUI.
-		m.enteringFilename = false
+		m.mode = promptModeNone
 		return m, nil
 	}
 
 	var cmd tea.Cmd
 	m.filenameInput, cmd = m.filenameInput.Update(msg)
 	return m, cmd
+}
+
+// updateSavePresetInput handles keys while the save-as-preset name
+// prompt has focus (opened by "s" in updatePicker) - or, once
+// savePresetConfirm is set, its overwrite-confirm sub-screen instead
+// (delegated to updateSavePresetConfirm). Mirrors updateFilenameInput's
+// shape for the name-entry half: Enter submits, Esc abandons back to
+// the picker.
+//
+// Enter on a name already in existingPresets does NOT submit - it
+// switches to the confirm sub-screen instead, leaving the typed name
+// in presetNameInput untouched so the confirm screen (and a "n"/Esc
+// bounce back from it) has something to show and to resume editing
+// from. Enter on an empty name is a no-op: neither quits nor opens the
+// confirm screen, matching goalIsEmpty's "can't confirm on nothing"
+// precedent for the main picker's own Enter.
+//
+// Beyond non-emptiness, the name is NOT validated here - see
+// presetNameInput's doc comment and Result's PresetName field: a bad
+// name (path separator, ".", "..") is caught by internal/preset on the
+// caller side after Run returns, exactly like an unwritable WritePath
+// already is for the "w" flow. Duplicating internal/preset's unexported
+// validateName here would just create a second copy of that rule to
+// keep in sync.
+func (m model) updateSavePresetInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.savePresetConfirm {
+		return m.updateSavePresetConfirm(msg)
+	}
+	switch {
+	case key.Matches(msg, m.keys.Enter):
+		name := m.presetNameInput.Value()
+		if name == "" {
+			return m, nil
+		}
+		if presetNameTaken(m.existingPresets, name) {
+			m.savePresetConfirm = true
+			return m, nil
+		}
+		m.result = Result{
+			Inputs:     m.currentInputs(),
+			Action:     ActionSavePreset,
+			PresetName: name,
+		}
+		return m, tea.Quit
+	case key.Matches(msg, m.keys.Esc):
+		// Abandon the save, return focus to the picker - not a full
+		// cancel of the whole TUI. Matches updateFilenameInput's Esc.
+		m.mode = promptModeNone
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.presetNameInput, cmd = m.presetNameInput.Update(msg)
+	return m, cmd
+}
+
+// updateSavePresetConfirm handles keys while promptModeSavePreset's
+// overwrite-confirm sub-screen is up (savePresetConfirm == true): the
+// typed name collided with an entry in existingPresets, and the user
+// must explicitly choose to clobber it or back out.
+//
+// "y" and "n" are plain tea.KeyRunes comparisons, not key.Bindings -
+// same rationale as "c"/"w"/"s" in updatePicker (see keyMap's doc
+// comment): a generic KeyRunes catch-all can't coexist with a
+// key.Matches binding for one specific rune. Neither needs a footer
+// entry (unlike "s"), since this sub-screen's own view text spells out
+// "(y)es / (n)o" directly rather than relying on the footer, which
+// isn't even rendered while any modal prompt is up.
+//
+// "n" and Esc are deliberately the SAME outcome (back to name entry,
+// name preserved) rather than Esc doing a full cancel: collapsing
+// "back out of the confirm" and "abandon the whole save" onto one key
+// would remove the user's ability to just pick a different name after
+// declining to overwrite - see pinned decision #3's rationale. "y" is
+// intentionally its own key rather than reusing Enter: a destructive
+// action (silently discussed in Result.OverwritePreset's own doc
+// comment as feeding straight into preset.Save's force argument) must
+// not share a keystroke with the benign "resubmit" path.
+func (m model) updateSavePresetConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "y":
+		m.result = Result{
+			Inputs:          m.currentInputs(),
+			Action:          ActionSavePreset,
+			PresetName:      m.presetNameInput.Value(),
+			OverwritePreset: true,
+		}
+		return m, tea.Quit
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "n":
+		m.savePresetConfirm = false
+		return m, nil
+	case key.Matches(msg, m.keys.Esc):
+		m.savePresetConfirm = false
+		return m, nil
+	}
+	// Every other key is ignored outright (not forwarded to
+	// presetNameInput the way updateSavePresetInput forwards unhandled
+	// keys to it) - this sub-screen has no text field of its own to
+	// receive them; the name being confirmed is already fixed.
+	return m, nil
+}
+
+// presetNameTaken reports whether name is already in existing - a
+// plain, case-sensitive, name-to-name comparison. Deliberately never
+// joins name with a directory or a ".yaml" suffix: existing is already
+// the bare names internal/preset's own listing produces (see
+// model.existingPresets's doc comment), and reconstructing a path or
+// filename here would duplicate internal/preset's sole ownership of
+// that ".yaml"/dir-join convention.
+func presetNameTaken(existing []string, name string) bool {
+	for _, e := range existing {
+		if e == name {
+			return true
+		}
+	}
+	return false
 }
 
 // updateHelpOverlay handles keys while the full-screen "?" help

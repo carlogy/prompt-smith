@@ -28,6 +28,11 @@ import (
 // the user's finalized choice. initial seeds the goal and any optional
 // fields already supplied via flags/args, plus any skills already
 // selected (e.g. via --tui with --skills, which pre-checks them).
+// existingPresets is the bare names (no ".yaml", no directory) of
+// presets already on disk, as reported by the caller (internal/preset's
+// listing, via internal/cli) - see model.existingPresets's doc comment
+// for why this is a plain name list rather than a callback or a
+// filesystem handle into internal/preset.
 //
 // Run never performs the chosen action itself (no file writes, no
 // clipboard) - the caller applies Result the same way it would flag-only
@@ -37,8 +42,10 @@ import (
 // captures mouse events while the TUI is open, which disables the
 // terminal's native click-drag text selection until it exits (the
 // footer's "c=copy" action covers copying the whole prompt instead).
-func Run(reg *registry.Registry, initial prompt.Inputs) (Result, error) {
-	p := tea.NewProgram(newModel(reg, initial), tea.WithAltScreen(), tea.WithMouseCellMotion())
+func Run(reg *registry.Registry, initial prompt.Inputs, existingPresets []string) (Result, error) {
+	m := newModel(reg, initial)
+	m.existingPresets = existingPresets
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	finalModel, err := p.Run()
 	if err != nil {
 		return Result{}, err

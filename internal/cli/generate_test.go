@@ -57,7 +57,7 @@ func stubInteractive(t *testing.T, val bool) func() {
 // stubRunTUI substitutes the tui.Run seam with fn for the duration of
 // the calling test, so gate tests never launch a real Bubble Tea program
 // (which would block reading real stdin).
-func stubRunTUI(t *testing.T, fn func(*registry.Registry, prompt.Inputs) (tui.Result, error)) func() {
+func stubRunTUI(t *testing.T, fn func(*registry.Registry, prompt.Inputs, []string) (tui.Result, error)) func() {
 	t.Helper()
 	original := runTUIFunc
 	runTUIFunc = fn
@@ -350,7 +350,7 @@ func TestGenerate_UnknownTargetWithNoSkills_ErrorsWithoutGoalOnlyNote(t *testing
 func TestGenerate_UnknownTargetWithTUIFlag_ErrorsBeforeLaunchingPicker(t *testing.T) {
 	called := false
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		called = true
 		return tui.Result{}, nil
 	})()
@@ -378,7 +378,7 @@ func TestGenerate_UnknownTargetWithTUIFlag_ErrorsBeforeLaunchingPicker(t *testin
 func TestGenerate_UnknownTargetWithEmptyGoal_ErrorsBeforeLaunchingPicker(t *testing.T) {
 	called := false
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		called = true
 		return tui.Result{}, nil
 	})()
@@ -447,7 +447,7 @@ func TestGenerate_QuickAndTUIFlagsParse(t *testing.T) {
 
 func TestGenerate_TUI_StdoutAction(t *testing.T) {
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		in.Skills = []string{"diagnose"}
 		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil
 	})()
@@ -479,7 +479,7 @@ func TestGenerate_TUI_StdoutAction(t *testing.T) {
 // ends.
 func TestGenerate_TUI_DoesNotEmitStderrHints(t *testing.T) {
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		in.Goal = "fix it"
 		in.Skills = []string{"diagnose"}
 		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil
@@ -505,7 +505,7 @@ func TestGenerate_TUI_DoesNotEmitStderrHints(t *testing.T) {
 
 func TestGenerate_TUI_CancelProducesNoOutputAndNoError(t *testing.T) {
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		return tui.Result{Action: tui.ActionCancel}, nil
 	})()
 
@@ -529,7 +529,7 @@ func TestGenerate_TUI_CancelProducesNoOutputAndNoError(t *testing.T) {
 
 func TestGenerate_TUI_CopyAction(t *testing.T) {
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		in.Skills = []string{"diagnose"}
 		return tui.Result{Inputs: in, Action: tui.ActionCopy}, nil
 	})()
@@ -559,7 +559,7 @@ func TestGenerate_TUI_WriteAction(t *testing.T) {
 	outPath := filepath.Join(t.TempDir(), "from-tui.txt")
 
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		in.Skills = []string{"diagnose"}
 		return tui.Result{Inputs: in, Action: tui.ActionWrite, WritePath: outPath}, nil
 	})()
@@ -602,7 +602,7 @@ func TestGenerate_TUI_LaunchesWithEmptyGoalWhenBare(t *testing.T) {
 	var receivedGoal string
 	called := false
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		called = true
 		receivedGoal = in.Goal
 		// Simulate the picker collecting a goal before confirming.
@@ -634,7 +634,7 @@ func TestGenerate_TUI_LaunchesWithEmptyGoalWhenBare(t *testing.T) {
 
 func TestGenerate_QuickSkipsTUIEvenWhenInteractive(t *testing.T) {
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		t.Fatal("runTUIFunc should not be called when --quick is set")
 		return tui.Result{}, nil
 	})()
@@ -657,7 +657,7 @@ func TestGenerate_QuickSkipsTUIEvenWhenInteractive(t *testing.T) {
 func TestGenerate_TUIFlagForcesPickerEvenWithSkills(t *testing.T) {
 	called := false
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		called = true
 		if len(in.Skills) != 1 || in.Skills[0] != "diagnose" {
 			t.Errorf("expected --skills to pre-populate the TUI's initial Inputs, got %v", in.Skills)
@@ -682,7 +682,7 @@ func TestGenerate_TUIFlagForcesPickerEvenWithSkills(t *testing.T) {
 
 func TestGenerate_TUIAndQuickTogetherErrors(t *testing.T) {
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		t.Fatal("runTUIFunc should not be called when --tui and --quick conflict")
 		return tui.Result{}, nil
 	})()
@@ -974,7 +974,7 @@ func TestGenerate_DefaultDeliveryGoesToRealStdoutNotStderr(t *testing.T) {
 // uses captureRealStdio instead of SetOut/SetErr.
 func TestGenerate_TUIStdoutActionGoesToRealStdoutNotStderr(t *testing.T) {
 	defer stubInteractive(t, true)()
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		in.Skills = []string{"diagnose"}
 		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil
 	})()
@@ -1251,7 +1251,7 @@ func TestGenerate_TUISeedsGoalFromGoalFlag(t *testing.T) {
 	defer stubInteractive(t, true)()
 
 	var gotGoal string
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		gotGoal = in.Goal
 		in.Skills = []string{"diagnose"}
 		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil
@@ -1395,7 +1395,7 @@ func TestGenerate_ExamplesSeedTUI(t *testing.T) {
 	defer stubInteractive(t, true)()
 
 	var gotExamples []string
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		gotExamples = in.Examples
 		in.Skills = []string{"diagnose"}
 		return tui.Result{Inputs: in, Action: tui.ActionStdout}, nil

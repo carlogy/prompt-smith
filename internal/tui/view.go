@@ -179,11 +179,16 @@ func effectiveFieldLabelWidth(availableWidth int) int {
 }
 
 // View satisfies tea.Model: a split-pane layout (skill picker + fields
-// left, live preview right) plus a footer, or the save-filename prompt
-// when enteringFilename is true.
+// left, live preview right) plus a footer, or a full-screen modal
+// prompt (the save-filename prompt when mode is
+// promptModeWriteFilename, or the save-as-preset prompt when mode is
+// promptModeSavePreset) that replaces the whole thing instead.
 func (m model) View() string {
-	if m.enteringFilename {
+	switch m.mode {
+	case promptModeWriteFilename:
 		return m.viewFilenamePrompt()
+	case promptModeSavePreset:
+		return m.viewSavePresetPrompt()
 	}
 	if m.help.ShowAll {
 		return m.viewHelpOverlay()
@@ -544,5 +549,39 @@ func (m model) viewFilenamePrompt() string {
 			"or \"~user\" for a home directory; missing parent directories\n"+
 			"are created automatically.",
 		m.filenameInput.View(),
+	)
+}
+
+// viewSavePresetPrompt renders promptModeSavePreset's modal: the
+// name-entry screen normally, or the overwrite-confirm screen instead
+// once savePresetConfirm is set (updateSavePresetInput sets it the
+// moment a submitted name collides with existingPresets). Mirrors
+// viewFilenamePrompt's shape - a plain, layout-independent screen
+// replacing the whole split view - for the name-entry half; the
+// confirm half is intentionally much shorter, since by that point the
+// user has already read the name-entry screen's explanation once and
+// only needs the yes/no choice restated.
+//
+// The name-entry paragraph explains what a preset captures instead of
+// documenting a save-path convention the way viewFilenamePrompt's
+// trailing paragraph does - there's no path here to explain, and the
+// one fact worth stating up front is WHY the input starts empty
+// instead of pre-filled the way the filename prompt's is: see
+// presetNameInput's doc comment (model.go) and pinned decision #4.
+func (m model) viewSavePresetPrompt() string {
+	if m.savePresetConfirm {
+		return fmt.Sprintf(
+			"A preset named %q already exists.\n\n"+
+				"(y)es, overwrite it   (n)o, pick a different name",
+			m.presetNameInput.Value(),
+		)
+	}
+	return fmt.Sprintf(
+		"Save inputs as a preset:\n%s\n(enter to confirm, esc to cancel)\n\n"+
+			"A preset captures role, context, constraints, output format,\n"+
+			"examples, skills, and target for reuse across future goals -\n"+
+			"the goal itself is never saved, since every generation starts\n"+
+			"with a fresh one.",
+		m.presetNameInput.View(),
 	)
 }

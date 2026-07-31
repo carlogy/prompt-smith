@@ -334,7 +334,7 @@ func TestFocus_ConfirmActionsBlockedWhenGoalEmpty(t *testing.T) {
 
 	updated4, _ := m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
 	m5 := updated4.(model)
-	if m5.enteringFilename {
+	if m5.mode == promptModeWriteFilename {
 		t.Error("expected 'w' not to open the filename modal when goal is empty")
 	}
 }

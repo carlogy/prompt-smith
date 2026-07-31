@@ -154,3 +154,25 @@ func TestHelpOverlay_QuestionMarkTypesLiterallyIntoTextFields(t *testing.T) {
 		t.Errorf("expected \"?\" to be typed literally into the goal field, got %q", m2.goal)
 	}
 }
+
+// TestShortHelp_FocusSkillsAdvertisesSave proves the "s" save-preset
+// hint made it into the one-row footer's skills-zone keybind list
+// (ShortHelp's focusSkills case) despite that row already sitting at
+// its 80-column budget before "s" was added (see the doc comment
+// there) - confirming the shortening described there actually made
+// room rather than silently dropping the new entry off the
+// ellipsized tail. footer_test.go/view_height_test.go cover the
+// row-stays-one-line and never-disappears guarantees; this covers the
+// content itself, which those two intentionally don't (see the task
+// note not to edit either file).
+func TestShortHelp_FocusSkillsAdvertisesSave(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	m2 := updated.(model) // focus=skills
+
+	got := stripANSI(m2.viewFooter())
+	if !strings.Contains(got, "s save") {
+		t.Errorf("expected the skills-focused footer to advertise \"s save\", got: %q", got)
+	}
+}

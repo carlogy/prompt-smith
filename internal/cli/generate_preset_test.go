@@ -305,7 +305,7 @@ func TestGenerate_PresetSeedsTUIInitialInputs(t *testing.T) {
 
 	defer stubInteractive(t, true)()
 	var gotInputs prompt.Inputs
-	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs) (tui.Result, error) {
+	defer stubRunTUI(t, func(reg *registry.Registry, in prompt.Inputs, _ []string) (tui.Result, error) {
 		gotInputs = in
 		return tui.Result{Inputs: in, Action: tui.ActionCancel}, nil
 	})()
@@ -325,6 +325,33 @@ func TestGenerate_PresetSeedsTUIInitialInputs(t *testing.T) {
 	}
 	if len(gotInputs.Skills) != 1 || gotInputs.Skills[0] != "diagnose" {
 		t.Errorf("TUI's initial Inputs.Skills = %v, want [diagnose]", gotInputs.Skills)
+	}
+}
+
+// TestPresetFieldSpecs_EveryEntryHasAllThreeFuncs is the extended
+// successor of generate_save_preset_test.go's
+// TestPresetFieldSpecs_EveryEntryHasBothFuncs, covering the third
+// (fromInputs) direction added for tui.ActionSavePreset alongside the
+// original apply/collect pair. It lives here rather than editing that
+// file directly: generate_save_preset_test.go pins Phase 6's
+// --save-preset behavior and is deliberately left unmodified (the
+// original two-func guard there still holds and still passes - apply
+// and collect are unaffected by fromInputs's addition). A nil
+// fromInputs func in any entry would panic the first time
+// collectPresetFromInputs reaches it (i.e. the first real
+// ActionSavePreset save), rather than failing loudly at compile time -
+// table literals don't enforce "every field must be set".
+func TestPresetFieldSpecs_EveryEntryHasAllThreeFuncs(t *testing.T) {
+	for _, spec := range presetFieldSpecs {
+		if spec.apply == nil {
+			t.Errorf("presetFieldSpecs[%q].apply is nil", spec.flagName)
+		}
+		if spec.collect == nil {
+			t.Errorf("presetFieldSpecs[%q].collect is nil", spec.flagName)
+		}
+		if spec.fromInputs == nil {
+			t.Errorf("presetFieldSpecs[%q].fromInputs is nil", spec.flagName)
+		}
 	}
 }
 

@@ -137,7 +137,7 @@ func TestClick_IgnoredWhileEnteringFilename(t *testing.T) {
 	u2, _ := m3.Update(leftClick(3, listTopOffset+3))
 	m4 := u2.(model)
 
-	if !m4.enteringFilename {
+	if m4.mode != promptModeWriteFilename {
 		t.Error("a click should not exit the filename prompt")
 	}
 	for _, it := range m4.items {

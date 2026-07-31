@@ -188,10 +188,28 @@ func addGenerateFlags(cmd *cobra.Command, reg *registry.Registry) {
 //     on Changed would only copy across flags the user just typed on
 //     THIS command line and would silently drop values a loaded
 //     preset had already merged into opts.
+//
+// fromInputs is a third, later-added direction: prompt.Inputs->preset,
+// used by collectPresetFromInputs when the TUI picker returns
+// tui.ActionSavePreset. It exists as a third leg on this SAME table,
+// not as a standalone function elsewhere, for the identical reason the
+// other two directions are table entries rather than separate
+// hand-written mappings: the seven-field mapping is stated exactly
+// once, so a reviewer checks every direction in one pass instead of
+// hunting a second (or third) table. It's needed at all because
+// result.Inputs, not opts, is authoritative once the picker returns -
+// the picker lets the user edit role/output_format/examples after they
+// were seeded from opts, so opts is stale the moment the picker
+// returns (this is the same reason runInteractive's lint pass reads
+// result.Inputs rather than opts). Like collect, it's value-based
+// (non-empty check, never gated on anything resembling Changed - a
+// prompt.Inputs has no flag-parse state to gate on in the first
+// place).
 var presetFieldSpecs = []struct {
-	flagName string
-	apply    func(opts *generateOptions, p *preset.Preset)
-	collect  func(opts *generateOptions, p *preset.Preset)
+	flagName   string
+	apply      func(opts *generateOptions, p *preset.Preset)
+	collect    func(opts *generateOptions, p *preset.Preset)
+	fromInputs func(in prompt.Inputs, p *preset.Preset)
 }{
 	{"target",
 		func(opts *generateOptions, p *preset.Preset) {
@@ -202,6 +220,11 @@ var presetFieldSpecs = []struct {
 		func(opts *generateOptions, p *preset.Preset) {
 			if opts.target != "" {
 				p.Target = opts.target
+			}
+		},
+		func(in prompt.Inputs, p *preset.Preset) {
+			if in.Target != "" {
+				p.Target = in.Target
 			}
 		},
 	},
@@ -216,6 +239,11 @@ var presetFieldSpecs = []struct {
 				p.Skills = opts.skills
 			}
 		},
+		func(in prompt.Inputs, p *preset.Preset) {
+			if len(in.Skills) > 0 {
+				p.Skills = in.Skills
+			}
+		},
 	},
 	{"role",
 		func(opts *generateOptions, p *preset.Preset) {
@@ -226,6 +254,11 @@ var presetFieldSpecs = []struct {
 		func(opts *generateOptions, p *preset.Preset) {
 			if opts.role != "" {
 				p.Role = opts.role
+			}
+		},
+		func(in prompt.Inputs, p *preset.Preset) {
+			if in.Role != "" {
+				p.Role = in.Role
 			}
 		},
 	},
@@ -240,6 +273,11 @@ var presetFieldSpecs = []struct {
 				p.Context = opts.context
 			}
 		},
+		func(in prompt.Inputs, p *preset.Preset) {
+			if in.Context != "" {
+				p.Context = in.Context
+			}
+		},
 	},
 	{"constraints",
 		func(opts *generateOptions, p *preset.Preset) {
@@ -250,6 +288,11 @@ var presetFieldSpecs = []struct {
 		func(opts *generateOptions, p *preset.Preset) {
 			if opts.constraints != "" {
 				p.Constraints = opts.constraints
+			}
+		},
+		func(in prompt.Inputs, p *preset.Preset) {
+			if in.Constraints != "" {
+				p.Constraints = in.Constraints
 			}
 		},
 	},
@@ -267,6 +310,11 @@ var presetFieldSpecs = []struct {
 				p.OutputFormat = opts.outputFormat
 			}
 		},
+		func(in prompt.Inputs, p *preset.Preset) {
+			if in.OutputFormat != "" {
+				p.OutputFormat = in.OutputFormat
+			}
+		},
 	},
 	// "example", singular: the flag is -e/--example even though both
 	// the preset field and the opts field are plural (Examples/examples).
@@ -279,6 +327,11 @@ var presetFieldSpecs = []struct {
 		func(opts *generateOptions, p *preset.Preset) {
 			if len(opts.examples) > 0 {
 				p.Examples = opts.examples
+			}
+		},
+		func(in prompt.Inputs, p *preset.Preset) {
+			if len(in.Examples) > 0 {
+				p.Examples = in.Examples
 			}
 		},
 	},
@@ -343,6 +396,22 @@ func collectPresetFromOpts(opts *generateOptions) *preset.Preset {
 	return p
 }
 
+// collectPresetFromInputs builds a *preset.Preset out of in's values by
+// running every fromInputs func in presetFieldSpecs - the third leg of
+// the same seven-entry table collectPresetFromOpts reads for
+// --save-preset. Used by runInteractive when the picker returns
+// tui.ActionSavePreset: result.Inputs, not opts, is authoritative once
+// the picker returns (see presetFieldSpecs's fromInputs doc comment),
+// so the save-as-preset path has to build its Preset from Inputs rather
+// than reusing collectPresetFromOpts against stale opts.
+func collectPresetFromInputs(in prompt.Inputs) *preset.Preset {
+	p := &preset.Preset{}
+	for _, spec := range presetFieldSpecs {
+		spec.fromInputs(in, p)
+	}
+	return p
+}
+
 // saveGeneratedPreset implements --save-preset: it builds a
 // *preset.Preset from opts (see collectPresetFromOpts) and writes it
 // via preset.Save, then confirms the full written path on stderr.
@@ -356,6 +425,43 @@ func saveGeneratedPreset(cmd *cobra.Command, opts *generateOptions) error {
 		return fmt.Errorf("promptsmith: %w", err)
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "promptsmith: saved preset %q to %s\n", opts.savePreset, path)
+	return nil
+}
+
+// savePresetFromInputs implements tui.ActionSavePreset: it builds a
+// *preset.Preset from result.Inputs (see collectPresetFromInputs) and
+// writes it via preset.Save, confirming the full written path on
+// stderr - the same shape as saveGeneratedPreset above, just sourced
+// from the picker's authoritative Inputs instead of opts. See
+// runInteractive's call site for why this runs before prompt.Build.
+//
+// result.OverwritePreset is passed straight through as force, never
+// hardcoded true: it's set only when the user explicitly confirmed
+// overwriting an existing preset inside the picker (see tui.Result's
+// doc comment). Hardcoding true here would let a preset created
+// between the picker's own existence check and this save get silently
+// clobbered - exactly the unrecoverable loss preset.Save's
+// refuse-without-force default exists to prevent.
+//
+// Deliberately does NOT also print the assembled prompt to stdout the
+// way tui.ActionStdout does. The two additive flag-only paths this
+// mirrors most closely - --save-preset alongside a goal (see
+// runGenerate's savePresetRequested handling) - are additive because
+// --save-preset is a flag layered onto an otherwise-unchanged generate
+// invocation and has to coexist with whatever delivery that invocation
+// already requested. The TUI has no equivalent "rest of the
+// invocation" to coexist with: deliver's own doc comment already notes
+// the picker "offers exactly one action per confirm", unlike the
+// flag-only path's additive --copy/--out. The user picked "save this
+// as a reusable preset" AS their one action, not "save it, and also
+// show me the prompt" - so this returns as soon as the save succeeds.
+func savePresetFromInputs(cmd *cobra.Command, result tui.Result) error {
+	p := collectPresetFromInputs(result.Inputs)
+	path, err := preset.Save(result.PresetName, p, result.OverwritePreset)
+	if err != nil {
+		return fmt.Errorf("promptsmith: %w", err)
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "promptsmith: saved preset %q to %s\n", result.PresetName, path)
 	return nil
 }
 
@@ -797,6 +903,22 @@ func runUI(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, go
 // with the result, through the same delivery helpers the flag-only path
 // uses.
 func runInteractive(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, goal string) error {
+	// existingPresets lets the picker warn before silently overwriting
+	// a preset on save-as (a later phase; see tui.Result.OverwritePreset).
+	// A listing failure is deliberately non-fatal: degrading to "acts
+	// as if nothing exists" is safe because preset.Save's non-force
+	// path already refuses to clobber (O_CREATE|O_EXCL) regardless of
+	// what this list says, so the worst outcome of swallowing the
+	// error here is a missed *warning*, never actual data loss.
+	existingPresets, listWarnings, err := preset.ListDir()
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "promptsmith: %v\n", err)
+		existingPresets = nil
+	}
+	for _, w := range listWarnings {
+		fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: "+w)
+	}
+
 	result, err := runTUIFunc(reg, prompt.Inputs{
 		Target:       opts.target,
 		Skills:       opts.skills,
@@ -806,7 +928,7 @@ func runInteractive(cmd *cobra.Command, reg *registry.Registry, opts *generateOp
 		Role:         opts.role,
 		OutputFormat: opts.outputFormat,
 		Examples:     opts.examples,
-	})
+	}, existingPresets)
 	if err != nil {
 		return err
 	}
@@ -814,6 +936,20 @@ func runInteractive(cmd *cobra.Command, reg *registry.Registry, opts *generateOp
 	if result.Action == tui.ActionCancel {
 		fmt.Fprintln(cmd.ErrOrStderr(), "promptsmith: canceled")
 		return nil
+	}
+
+	// Handled BEFORE prompt.Build, and returns without ever calling
+	// it: a preset records HOW to ask (target, skills, role, context,
+	// constraints, output_format, examples - see the preset package
+	// doc comment), never WHAT to ask, so saving one has nothing to
+	// gain from Build succeeding and nothing to lose from Build
+	// failing. This mirrors the existing --save-preset flag path's own
+	// placement in runGenerate, ahead of both the unknown-target check
+	// and prompt.Build - "a prompt-assembly failure never blocks a
+	// preset save" is already this repo's rule, not a new one
+	// introduced here.
+	if result.Action == tui.ActionSavePreset {
+		return savePresetFromInputs(cmd, result)
 	}
 
 	out, err := prompt.Build(reg, result.Inputs)

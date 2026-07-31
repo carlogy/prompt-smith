@@ -327,8 +327,8 @@ func TestModel_WThenEnterConfirmsWriteWithSuggestedName(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected opening the filename input not to quit")
 	}
-	if !m2.enteringFilename {
-		t.Fatal("expected enteringFilename to be true after pressing w")
+	if m2.mode != promptModeWriteFilename {
+		t.Fatal("expected mode to be promptModeWriteFilename after pressing w")
 	}
 	if m2.filenameInput.Value() == "" {
 		t.Fatal("expected the filename input to be pre-filled with a suggestion")
@@ -355,11 +355,198 @@ func TestModel_EscWhileEnteringFilenameReturnsToPicker(t *testing.T) {
 	updated2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m3 := updated2.(model)
 
-	if m3.enteringFilename {
-		t.Error("expected enteringFilename to be false after esc")
+	if m3.mode != promptModeNone {
+		t.Error("expected mode to be promptModeNone after esc")
 	}
 	if cmd != nil {
 		t.Error("expected esc while entering a filename not to quit the whole TUI")
+	}
+}
+
+// typeString sends one tea.KeyMsg per rune of s to m, in order,
+// returning the resulting model - a direct-Update equivalent of
+// teatest's tm.Type helper (tui_test.go's end-to-end tests use the
+// real thing; these direct-Update tests can't, since there's no
+// running tea.Program to send to).
+func typeString(m model, s string) model {
+	for _, r := range s {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(model)
+	}
+	return m
+}
+
+// TestModel_SThenEnterConfirmsSavePresetWithNewName covers pinned
+// decision #2's non-colliding path: a name not in existingPresets
+// submits immediately (no confirm screen) with OverwritePreset false.
+func TestModel_SThenEnterConfirmsSavePresetWithNewName(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal", Skills: []string{"diagnose"}})
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m2 := updated.(model)
+	if cmd != nil {
+		t.Fatal("expected opening the save-preset input not to quit")
+	}
+	if m2.mode != promptModeSavePreset {
+		t.Fatal("expected mode to be promptModeSavePreset after pressing s")
+	}
+	if m2.presetNameInput.Value() != "" {
+		t.Errorf("expected the preset name input to start empty (not goal-derived), got %q", m2.presetNameInput.Value())
+	}
+
+	m3 := typeString(m2, "my-new-preset")
+	updated2, cmd2 := m3.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m4 := updated2.(model)
+
+	if m4.result.Action != ActionSavePreset {
+		t.Errorf("Action = %v, want ActionSavePreset", m4.result.Action)
+	}
+	if m4.result.PresetName != "my-new-preset" {
+		t.Errorf("PresetName = %q, want %q", m4.result.PresetName, "my-new-preset")
+	}
+	if m4.result.OverwritePreset {
+		t.Error("expected OverwritePreset to be false for a name not in existingPresets")
+	}
+	assertQuits(t, cmd2)
+}
+
+// TestModel_SThenEnterOnExistingNameEntersConfirmWithoutQuitting covers
+// pinned decision #2's colliding path: a name already in
+// existingPresets does not submit - it opens the confirm sub-screen.
+func TestModel_SThenEnterOnExistingNameEntersConfirmWithoutQuitting(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+	m.existingPresets = []string{"already-here"}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m2 := typeString(updated.(model), "already-here")
+
+	updated2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m3 := updated2.(model)
+
+	if cmd != nil {
+		t.Fatal("expected Enter on a colliding name to open the confirm screen, not quit")
+	}
+	if m3.mode != promptModeSavePreset {
+		t.Error("expected mode to remain promptModeSavePreset")
+	}
+	if !m3.savePresetConfirm {
+		t.Error("expected savePresetConfirm to be true after a colliding name")
+	}
+}
+
+// TestModel_YAtConfirmOverwritesPreset covers pinned decision #3's "y"
+// path: OverwritePreset ends up true and the program quits.
+func TestModel_YAtConfirmOverwritesPreset(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+	m.existingPresets = []string{"already-here"}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m2 := typeString(updated.(model), "already-here")
+	updated2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m3 := updated2.(model)
+
+	updated3, cmd := m3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m4 := updated3.(model)
+
+	if m4.result.Action != ActionSavePreset {
+		t.Errorf("Action = %v, want ActionSavePreset", m4.result.Action)
+	}
+	if m4.result.PresetName != "already-here" {
+		t.Errorf("PresetName = %q, want %q", m4.result.PresetName, "already-here")
+	}
+	if !m4.result.OverwritePreset {
+		t.Error("expected OverwritePreset to be true after confirming with y")
+	}
+	assertQuits(t, cmd)
+}
+
+// TestModel_NAndEscAtConfirmReturnToNameEntryWithNamePreserved covers
+// pinned decision #3's non-destructive paths: both "n" and Esc bounce
+// back to the name-entry screen (not the picker, and not a whole-TUI
+// cancel), and the typed name survives the round trip either way.
+func TestModel_NAndEscAtConfirmReturnToNameEntryWithNamePreserved(t *testing.T) {
+	for _, key := range []struct {
+		name string
+		msg  tea.KeyMsg
+	}{
+		{"n", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")}},
+		{"esc", tea.KeyMsg{Type: tea.KeyEsc}},
+	} {
+		t.Run(key.name, func(t *testing.T) {
+			reg := fixtureRegistry()
+			m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+			m.existingPresets = []string{"already-here"}
+
+			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+			m2 := typeString(updated.(model), "already-here")
+			updated2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			m3 := updated2.(model)
+
+			updated3, cmd := m3.Update(key.msg)
+			m4 := updated3.(model)
+
+			if cmd != nil {
+				t.Errorf("expected %q at the confirm screen not to quit", key.name)
+			}
+			if m4.mode != promptModeSavePreset {
+				t.Errorf("expected %q to return to the save-preset prompt, not the picker", key.name)
+			}
+			if m4.savePresetConfirm {
+				t.Errorf("expected %q to leave the confirm sub-screen", key.name)
+			}
+			if m4.presetNameInput.Value() != "already-here" {
+				t.Errorf("expected %q to preserve the typed name, got %q", key.name, m4.presetNameInput.Value())
+			}
+		})
+	}
+}
+
+// TestModel_EscWhileEnteringPresetNameReturnsToPicker mirrors
+// TestModel_EscWhileEnteringFilenameReturnsToPicker for the "s" flow:
+// Esc from the name-entry screen (not the confirm screen - see the
+// test above for that one) abandons the save and returns to the
+// picker without quitting.
+func TestModel_EscWhileEnteringPresetNameReturnsToPicker(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m2 := updated.(model)
+
+	updated2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m3 := updated2.(model)
+
+	if m3.mode != promptModeNone {
+		t.Error("expected mode to be promptModeNone after esc")
+	}
+	if cmd != nil {
+		t.Error("expected esc while entering a preset name not to quit the whole TUI")
+	}
+}
+
+// TestModel_EmptyPresetNameEnterIsANoOp covers pinned decision #5:
+// submitting a blank name neither quits nor opens the confirm screen.
+func TestModel_EmptyPresetNameEnterIsANoOp(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m2 := updated.(model)
+
+	updated2, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m3 := updated2.(model)
+
+	if cmd != nil {
+		t.Error("expected Enter on an empty preset name not to quit")
+	}
+	if m3.mode != promptModeSavePreset {
+		t.Error("expected mode to remain promptModeSavePreset")
+	}
+	if m3.savePresetConfirm {
+		t.Error("expected an empty name not to open the confirm screen")
 	}
 }
 
@@ -439,6 +626,42 @@ func TestView_FilenameModeShowsSavePrompt(t *testing.T) {
 	}
 	if !strings.Contains(got, m2.filenameInput.Value()) {
 		t.Errorf("expected the view to show the current filename input value, got:\n%s", got)
+	}
+}
+
+// TestView_SavePresetModeShowsNameAndConfirmPrompts mirrors
+// TestView_FilenameModeShowsSavePrompt's style for the "s" flow's two
+// screens: the name-entry prompt (the typed name is visible in the
+// rendered input) and, once a colliding name is submitted, the
+// overwrite-confirm prompt (the colliding name is named explicitly).
+func TestView_SavePresetModeShowsNameAndConfirmPrompts(t *testing.T) {
+	reg := fixtureRegistry()
+	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+	m.existingPresets = []string{"already-here"}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m2 := updated.(model)
+
+	nameGot := stripANSI(m2.View())
+	if !strings.Contains(nameGot, "Save") {
+		t.Errorf("expected the name-entry view to mention saving, got:\n%s", nameGot)
+	}
+
+	m3 := typeString(m2, "already-here")
+	afterTypingGot := stripANSI(m3.View())
+	if !strings.Contains(afterTypingGot, "already-here") {
+		t.Errorf("expected the view to show the typed preset name, got:\n%s", afterTypingGot)
+	}
+
+	updated2, _ := m3.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m4 := updated2.(model)
+
+	confirmGot := stripANSI(m4.View())
+	if !strings.Contains(confirmGot, "already-here") {
+		t.Errorf("expected the confirm view to name the colliding preset, got:\n%s", confirmGot)
+	}
+	if !strings.Contains(confirmGot, "y") || !strings.Contains(confirmGot, "n") {
+		t.Errorf("expected the confirm view to mention both y and n, got:\n%s", confirmGot)
 	}
 }
 
