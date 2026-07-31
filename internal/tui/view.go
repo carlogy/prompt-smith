@@ -77,46 +77,120 @@ func footerDescriptorFor(zone focusZone) string {
 	}
 }
 
-// viewFooter renders the one-row footer beneath both panes: the
-// focused zone's descriptor sentence (footerDescriptorFor), if it has
-// one, followed by bubbles/help's rendering of keyMap.ShortHelp() for
-// that same zone. The two pieces are rendered SEPARATELY and
-// concatenated by plain string "+" rather than one Style.Render call
-// wrapping both - help.View already emits its own ANSI escapes (its
-// styles are wired up in newModel, from theme.go), and nesting a
-// second Style.Render around that output would have footerStyle's
-// SGR codes get reset partway through by help's own, mangling the
-// line's styling.
+// footerSep separates the descriptor half of the footer from the
+// keybind half, when both are present. Matches help.Model's own
+// ShortSeparator (tightened from bubbles/help's default " • " to "  "
+// in newModel, model.go) so the two halves read as one consistently-
+// spaced row rather than two different gap conventions sitting next
+// to each other.
+const footerSep = "  "
+
+// footerDescriptorMinWidth is the legibility floor below which
+// viewFooter drops the descriptor instead of truncating it further.
+// Below this width, a truncated fielddesc sentence is mostly ellipsis
+// - a handful of words swallowed down to two or three, which reads as
+// noise rather than as the nice-to-have it's meant to be (see
+// viewFooter's doc comment for why the keybind half outranks it).
+// Sized to still show a short recognizable fragment of even the
+// shortest sentence (fielddesc.Goal, "What you want the model to
+// do.", is 30 columns) rather than being tuned to any one field's
+// exact length - 20 leaves room for a handful of words plus the
+// ellipsis (e.g. "What you want the m…"), which is the shortest
+// prefix worth the row space; anything shorter is better spent
+// entirely on the keybind half.
+const footerDescriptorMinWidth = 20
+
+// viewFooter renders the one-row footer beneath both panes: bubbles/
+// help's rendering of keyMap.ShortHelp() for the focused zone,
+// preceded by that zone's descriptor sentence (footerDescriptorFor)
+// when there's room left for one. The two pieces are rendered
+// SEPARATELY and concatenated by plain string "+" rather than one
+// Style.Render call wrapping both - help.View already emits its own
+// ANSI escapes (its styles are wired up in newModel, from theme.go),
+// and nesting a second Style.Render around that output would have
+// footerStyle's SGR codes get reset partway through by help's own,
+// mangling the line's styling.
+//
+// The keybind half is budgeted FIRST and the descriptor gets whatever
+// is left over, truncated (truncateToWidth) - not the other way
+// around, and not an equal split. The keybind half is need-to-have:
+// it's the only place a user learns how to submit, cancel, or move
+// off the current field (most acutely in focusExamples, where Enter
+// inserts a newline instead of submitting - see keys.go's
+// focusExamples case). The descriptor is nice-to-have: it's already
+// duplicated in the web UI's field hints and in the README
+// (fielddesc's own package doc comment), so a user who can't read it
+// in a narrow terminal has two other places to find the same
+// sentence. Giving the descriptor first priority (the original bug)
+// meant the keybind half - sometimes the ONLY explanation a stuck
+// user had - was what got silently ellipsized away instead.
+//
+// This ordering also removes the previous version's clamp-to-0
+// hazard: help.Width here is always termWidth, never termWidth minus
+// something else, so it's never driven negative and clamped to a
+// value bubbles/help's shouldAddItem treats as "unbounded" (see that
+// function's own `m.Width > 0` check, vendored at
+// bubbles@v1.0.0/help/help.go) - which was the direct cause of the
+// keybind half's line-wrap hazard this whole function guards against.
 func (m model) viewFooter() string {
-	desc := footerDescriptorFor(m.focus)
+	// termWidth is normalized exactly like computeLayout normalizes it
+	// internally (defaultTermWidth when <=0, i.e. before the first
+	// WindowSizeMsg), so this stays in lockstep with the same effective
+	// width the rest of the layout was sized against - not l directly,
+	// since l's content widths already have paneHOverhead and the
+	// pane-split subtracted out, neither of which applies to the
+	// borderless footer row.
+	termWidth := m.termWidth
+	if termWidth <= 0 {
+		termWidth = defaultTermWidth
+	}
 
 	// help.Model.Width caps ShortHelpView's rendered width so it
 	// ellipsizes instead of wrapping onto a second physical row (help's
 	// own doc comment; bubbles/help has no soft-wrap of its own) - it
 	// does nothing width-aware by default (Width's zero value means
-	// "unbounded"). Budget it as the terminal width minus whatever the
-	// descriptor above already consumed (plus the separator between
-	// them). termWidth is normalized exactly like computeLayout
-	// normalizes it internally (defaultTermWidth when <=0, i.e. before
-	// the first WindowSizeMsg), so this stays in lockstep with the
-	// same effective width the rest of the layout was sized against -
-	// not l directly, since l's content widths already have
-	// paneHOverhead and the pane-split subtracted out, neither of
-	// which applies to the borderless footer row.
-	termWidth := m.termWidth
-	if termWidth <= 0 {
-		termWidth = defaultTermWidth
-	}
+	// "unbounded"). Capped at the FULL terminal width, not reduced by
+	// anything else: the keybind half gets first claim on every column.
+	m.help.Width = termWidth
+	hint := m.help.View(m.keys)
+
+	// hintWidth is what the hint ACTUALLY rendered at, which can be
+	// less than m.help.Width when the hint fits with room to spare
+	// (bubbles/help never pads short output out to Width) - using the
+	// real rendered width, not the budget, is what lets focusSkills/
+	// focusPreview (no descriptor either way) and every text field's
+	// short hint keep exactly the same output this function produced
+	// before this budget was inverted: the descriptor's leftover budget
+	// is computed against what the hint actually used, not what it was
+	// merely allowed to use.
+	hintWidth := lipgloss.Width(hint)
+
+	desc := footerDescriptorFor(m.focus)
 	sep := ""
 	if desc != "" {
-		sep = "  "
-	}
-	m.help.Width = termWidth - lipgloss.Width(desc) - lipgloss.Width(sep)
-	if m.help.Width < 0 {
-		m.help.Width = 0
+		budget := termWidth - hintWidth - lipgloss.Width(footerSep)
+		if budget < footerDescriptorMinWidth {
+			desc = ""
+		} else {
+			desc = truncateToWidth(desc, budget)
+			sep = footerSep
+		}
 	}
 
-	return footerStyle.Render(desc) + sep + m.help.View(m.keys)
+	// Belt-and-suspenders MaxWidth clamp (truncates, doesn't wrap - see
+	// viewTarget's doc comment for the same MaxWidth-vs-Width choice):
+	// bubbles/help's own shouldAddItem (vendored at bubbles@v1.0.0/
+	// help/help.go) has a boundary quirk where, if an item would
+	// overflow m.Width but even its ellipsis wouldn't fit either, it
+	// gives up on truncating and appends the full item anyway -
+	// verified empirically for focusExamples at exactly width 60
+	// (hintWidth renders at 72 despite m.help.Width=60). hintWidth is
+	// measured from the ACTUAL rendered hint above specifically so the
+	// descriptor budget stays correct even when this quirk fires; this
+	// clamp is the second, independent guarantee that the composed row
+	// never exceeds termWidth regardless of what bubbles/help decided
+	// to do internally.
+	return lipgloss.NewStyle().MaxWidth(termWidth).Render(footerStyle.Render(desc) + sep + hint)
 }
 
 // viewHelpOverlay renders the full-screen "?" help takeover

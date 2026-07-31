@@ -217,16 +217,37 @@ func TestView_FieldsBlockHeightMatchesTotalFieldsHeight(t *testing.T) {
 	}
 }
 
+// TestFooter_ExamplesMentionsNewlineAndTabToSubmit used to call
+// m.changeFocus directly, with no tea.WindowSizeMsg ever sent - which
+// left m.termWidth at its zero value. viewFooter's own fallback
+// (termWidth <= 0 -> defaultTermWidth, 80) meant that omission didn't
+// make the test pass at some arbitrary invalid width; it made it pass
+// at exactly the one width where the PRE-fix budget rule was at its
+// most broken: footerDescriptorFor's full Examples sentence (112
+// columns, wider than 80 on its own) drove help.Width negative, which
+// got clamped to 0, and bubbles/help's shouldAddItem only truncates
+// `if m.Width > 0` (vendored at bubbles@v1.0.0/help/help.go) - so at
+// Width==0 nothing ellipsized at all and the complete, untruncated 186-
+// column keybind+descriptor string always contained "newline"/"tab"/
+// "submit" regardless of what the fix under test actually did. Sending
+// an explicit WindowSizeMsg at several realistic widths - including
+// ones at and above defaultTermWidth, where the new hint-first budget
+// (view.go) is what's actually responsible for keeping the submit hint
+// intact - is what turns this back into a real regression guard rather
+// than one that would keep passing even if the priority were reverted.
 func TestFooter_ExamplesMentionsNewlineAndTabToSubmit(t *testing.T) {
-	reg := fixtureRegistry()
-	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
-	focused, _ := m.changeFocus(focusExamples)
-	m2 := focused.(model)
+	for _, w := range []int{80, 120, 200} {
+		reg := fixtureRegistry()
+		m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 20})
+		focused, _ := updated.(model).changeFocus(focusExamples)
+		m2 := focused.(model)
 
-	got := strings.ToLower(stripANSI(m2.viewFooter()))
-	for _, want := range []string{"newline", "tab", "submit"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("viewFooter() with focusExamples = %q, want it to mention %q", got, want)
+		got := strings.ToLower(stripANSI(m2.viewFooter()))
+		for _, want := range []string{"newline", "tab", "submit"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("width=%d: viewFooter() with focusExamples = %q, want it to mention %q", w, got, want)
+			}
 		}
 	}
 }

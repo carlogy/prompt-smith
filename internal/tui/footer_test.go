@@ -178,3 +178,49 @@ func TestFooter_StaysOneRowAtNarrowWidth(t *testing.T) {
 		t.Errorf("viewFooter() height at width 40 = %d, want exactly 1 row; got: %q", h, stripANSI(footer))
 	}
 }
+
+// TestFooter_OneRowAndExamplesSubmitHintAcrossWidths is the permanent,
+// table-driven regression guard for the hint-first/descriptor-second
+// footer budget (viewFooter, view.go): every focus zone (focusCycle,
+// focus.go, rather than an ad hoc subset) must render its footer in
+// exactly one physical row, and never wider than the terminal it was
+// given, at every width from 40 to 200 - regardless of whether the
+// overflow would come from this package's own budget math or from
+// bubbles/help's shouldAddItem itself (vendored at bubbles@v1.0.0/
+// help/help.go has a boundary quirk, verified empirically at
+// focusExamples/width 60, where it gives up on truncating and appends
+// a full item past its own Width when even the ellipsis wouldn't fit -
+// viewFooter's closing MaxWidth clamp is what catches that case).
+// focusExamples' submit hint - the only explanation that Enter inserts
+// a newline there instead of submitting, see keys.go's focusExamples
+// case - must additionally stay fully visible at every width from 80
+// upward, the width this TUI treats as its un-configured baseline
+// (defaultTermWidth, layout.go).
+func TestFooter_OneRowAndExamplesSubmitHintAcrossWidths(t *testing.T) {
+	const examplesSubmitHint = "tab next field (then enter to submit)"
+	widths := []int{40, 60, 80, 100, 120, 160, 200}
+
+	for _, zone := range focusCycle {
+		for _, w := range widths {
+			reg := fixtureRegistry()
+			m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 20})
+			focused, _ := updated.(model).changeFocus(zone)
+			footer := focused.(model).viewFooter()
+
+			if h := lipgloss.Height(footer); h != 1 {
+				t.Errorf("zone=%v width=%d: viewFooter() height = %d, want 1; got %q", zone, w, h, stripANSI(footer))
+			}
+			if fw := lipgloss.Width(footer); fw > w {
+				t.Errorf("zone=%v width=%d: viewFooter() rendered width = %d, exceeds the terminal width; got %q", zone, w, fw, stripANSI(footer))
+			}
+
+			if zone == focusExamples && w >= 80 {
+				got := stripANSI(footer)
+				if !strings.Contains(got, examplesSubmitHint) {
+					t.Errorf("zone=focusExamples width=%d: footer missing submit hint %q, got %q", w, examplesSubmitHint, got)
+				}
+			}
+		}
+	}
+}
