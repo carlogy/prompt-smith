@@ -54,6 +54,19 @@ type Options struct {
 	// --ui's flag seeding in cli, which populates this the same way
 	// --tui pre-populates the picker.
 	Initial prompt.Inputs
+	// Warnings carries registry.Load's non-fatal warnings (e.g. a
+	// malformed user skill in PROMPTSMITH_SKILLS_DIR) into the page:
+	// see cli's runUI, the only real caller today. handleIndex renders
+	// each one in a notice region ahead of the form (index.html), so a
+	// warning that the CLI's other paths just print to stderr (see
+	// internal/cli/root.go's run) is still visible to whoever's
+	// actually looking at the browser tab under --ui, where nothing
+	// prints to a terminal until long after Serve's caller-supplied
+	// ctx is canceled. Also logged via Logger.Warn once Serve starts
+	// (see below) for the case where nobody's watching the browser
+	// tab at all - a detached or backgrounded server has no attached
+	// terminal for a stderr print to reach anyway.
+	Warnings []string
 	// Logger receives structured diagnostic events (browser-open
 	// failures, shutdown, request-handling errors). Defaults to
 	// slog.Default() if nil. Deliberately separate from Stdout: this
@@ -110,6 +123,18 @@ func Serve(ctx context.Context, reg *registry.Registry, opts Options) error {
 	// constructor's signature for every existing caller just to plumb
 	// one field only Serve itself has.
 	app.noHints = opts.NoHints
+	// Same reasoning, same precedent, as noHints immediately above -
+	// see application.warnings's own doc comment (app.go).
+	app.warnings = opts.Warnings
+
+	// Logged as soon as Serve has an app.warnings to log, well before
+	// the server is actually accepting connections: this is what
+	// helps a detached/backgrounded --ui server (see Options.Warnings)
+	// where nobody's watching the browser tab and there's no attached
+	// terminal for a stderr print to ever reach.
+	for _, w := range opts.Warnings {
+		logger.Warn("registry warning", "warning", w)
+	}
 	srv := &http.Server{
 		Handler:           app.routes(),
 		ReadHeaderTimeout: 5 * time.Second,

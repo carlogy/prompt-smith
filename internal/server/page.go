@@ -32,6 +32,11 @@ type indexPageData struct {
 	Initial      initialData
 	AdvancedOpen bool // pre-expand the optional-fields <details> when any were seeded
 	Hints        fieldHints
+	// RegistryWarnings mirrors app.warnings (see Options.Warnings in
+	// server.go): registry.Load's non-fatal warnings, rendered in a
+	// notice region ahead of the form (index.html) when non-empty,
+	// and omitted from the page entirely otherwise.
+	RegistryWarnings []string
 }
 
 type categoryData struct {
@@ -165,6 +170,7 @@ func (app *application) handleIndex(w http.ResponseWriter, r *http.Request) {
 			OutputFormat: fielddesc.Sentence(fielddesc.OutputFormat),
 			Examples:     fielddesc.Sentence(fielddesc.Examples),
 		},
+		RegistryWarnings: app.warnings,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

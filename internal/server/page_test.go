@@ -371,3 +371,107 @@ func TestHandleIndex_TargetOptionsShowDisplayNameNotID(t *testing.T) {
 		t.Errorf(`expected generic's <option> to fall back to displaying its id (no Name set), got:\n%s`, body)
 	}
 }
+
+// TestHandleIndex_RendersRegistryWarnings proves each of
+// app.warnings (see Options.Warnings, server.go) is rendered on the
+// page - the --ui counterpart to the CLI's stderr print in
+// internal/cli/root.go's run, since Serve blocks until its ctx is
+// canceled and never gets an equivalent "after Execute returns"
+// moment to print to a terminal.
+func TestHandleIndex_RendersRegistryWarnings(t *testing.T) {
+	app := testApp()
+	app.warnings = []string{
+		"skip testing/broken/SKILL.md: missing frontmatter",
+		"skip other/skill/SKILL.md: no SKILL.md found",
+	}
+	req := newLocalRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	for _, want := range app.warnings {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing warning %q, got:\n%s", want, body)
+		}
+	}
+}
+
+// TestHandleIndex_NoRegistryWarningsRendersNoNoticeRegion proves the
+// notice region itself - not just its text content - is absent when
+// there are no warnings, rather than rendering as an empty shell that
+// would still take up space and be reachable to assistive tech.
+func TestHandleIndex_NoRegistryWarningsRendersNoNoticeRegion(t *testing.T) {
+	app := testApp() // no warnings seeded
+	req := newLocalRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if strings.Contains(body, `id="registry-notice"`) {
+		t.Errorf("expected no registry-notice region with no warnings, got:\n%s", body)
+	}
+}
+
+// TestHandleIndex_RegistryNoticeHasNoLiveRegionRole pins the
+// accessibility decision recorded in index.html's own comment above
+// #registry-notice: these warnings are present at initial page load,
+// not dynamically inserted, so an aria-live role (role="alert" or
+// role="status") would be semantically wrong - mirrors
+// TestHandlePreview_FindingsBlockHasNoLiveRegionRole in
+// preview_test.go for the identical reason on a different block. This
+// test exists so a future change adding one of these roles back has
+// to consciously break a test, not silently regress.
+func TestHandleIndex_RegistryNoticeHasNoLiveRegionRole(t *testing.T) {
+	app := testApp()
+	app.warnings = []string{"skip testing/broken/SKILL.md: missing frontmatter"}
+	req := newLocalRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	noticeStart := strings.Index(body, `id="registry-notice"`)
+	if noticeStart == -1 {
+		t.Fatalf("page missing the registry-notice region, got:\n%s", body)
+	}
+	noticeEnd := strings.Index(body[noticeStart:], "</div>")
+	if noticeEnd == -1 {
+		t.Fatalf("registry-notice region has no closing </div>, got:\n%s", body)
+	}
+	notice := body[noticeStart : noticeStart+noticeEnd]
+	if strings.Contains(notice, `role="alert"`) || strings.Contains(notice, `role="status"`) {
+		t.Errorf("registry-notice region must not carry a live-region role, got:\n%s", notice)
+	}
+}
+
+// TestHandleIndex_RegistryNoticeAppearsBeforeForm proves the notice
+// region is encountered before <form id="prompt-form"> in document
+// order - the deliberate substitute for an aria-live role (see
+// index.html's comment above #registry-notice): a screen reader
+// reaches it early just by reading the page normally. Same
+// byte-offset technique internal/cli/root_test.go's
+// TestRun_WarningsPrintBeforeTerminalError uses to pin an ordering
+// claim.
+func TestHandleIndex_RegistryNoticeAppearsBeforeForm(t *testing.T) {
+	app := testApp()
+	app.warnings = []string{"skip testing/broken/SKILL.md: missing frontmatter"}
+	req := newLocalRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	noticeAt := strings.Index(body, `id="registry-notice"`)
+	formAt := strings.Index(body, `<form id="prompt-form"`)
+	if noticeAt == -1 {
+		t.Fatalf("page missing the registry-notice region, got:\n%s", body)
+	}
+	if formAt == -1 {
+		t.Fatalf("page missing the prompt form, got:\n%s", body)
+	}
+	if noticeAt > formAt {
+		t.Errorf("registry-notice at byte %d, form at byte %d - want the notice BEFORE the form", noticeAt, formAt)
+	}
+}

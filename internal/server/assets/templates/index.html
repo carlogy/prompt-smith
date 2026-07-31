@@ -16,6 +16,30 @@
 			<p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Assemble a prompt, then copy it. Nothing here is saved server-side.</p>
 		</header>
 
+		<!-- Deliberately no role="alert" and no role="status": these
+		     warnings (see indexPageData.RegistryWarnings, page.go) are
+		     present at INITIAL page load, not content inserted after
+		     the fact, so they're read in normal document order by a
+		     screen reader - aria-live exists for dynamically inserted
+		     content, and adding one of those roles here would be
+		     semantically wrong for something that's just... on the
+		     page from the start. Placed before the form for the same
+		     reason: normal reading order already reaches it early,
+		     with no live region needed to force the point. A future
+		     change adding either role back must consciously break
+		     TestHandleIndex_RegistryNoticeHasNoLiveRegionRole
+		     (page_test.go) to do so. -->
+		{{if .RegistryWarnings}}
+		<div id="registry-notice" class="mb-10 border-t border-slate-200 pt-4 dark:border-slate-700">
+			<h2 class="text-sm font-medium text-slate-700 dark:text-slate-200">Registry warnings</h2>
+			<ul class="mt-1.5 list-disc space-y-1 pl-5 text-sm text-red-700 dark:text-red-400">
+				{{range .RegistryWarnings}}
+				<li>{{.}}</li>
+				{{end}}
+			</ul>
+		</div>
+		{{end}}
+
 		<main id="main-content" class="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:items-start">
 			<form id="prompt-form" class="space-y-8"
 				hx-post="/preview"

@@ -27,8 +27,14 @@ import (
 // skills found in userSkillsDir (see userskills.go). A problem loading
 // user skills never fails the whole load - it's reported back as a
 // warning instead, so a bad drop-in can't take down an otherwise-working
-// CLI; the caller decides how to surface warnings (Execute prints them
-// to stderr).
+// CLI; the caller decides how to surface warnings. Today that's two
+// callers, not one: internal/cli's run prints them to stderr after the
+// command tree finishes (see root.go's run for why that ordering
+// matters), and --ui additionally threads them into server.Options so
+// they render in the served page and get logged via slog when Serve
+// starts (see internal/server's Options.Warnings) - the stderr-only
+// story stopped being complete once a warning needed to reach someone
+// looking at a browser tab, not a terminal.
 //
 // LoadFS does the actual embedded-registry parsing and is what tests
 // exercise against synthetic filesystems.

@@ -800,6 +800,68 @@ func TestGenerate_UIWithPortAndNoBrowser(t *testing.T) {
 	}
 }
 
+// TestGenerate_UIPassesRegistryWarningsIntoServerOptions proves runUI
+// reads the warnings run (root.go) stashed on the command's context
+// via withWarnings and forwards them into server.Options.Warnings -
+// the whole point of this unit: --ui has no other way to surface a
+// registry.Load warning, since Serve blocks until ctx is done and the
+// CLI's stderr print in run only happens after Execute returns.
+func TestGenerate_UIPassesRegistryWarningsIntoServerOptions(t *testing.T) {
+	var gotOpts server.Options
+	defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+		gotOpts = opts
+		return nil
+	})()
+
+	wantWarnings := []string{"skip testing/broken/SKILL.md: missing frontmatter"}
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"--ui"})
+	// Mirrors what run (root.go) does before Execute: newRootCmd(reg)
+	// alone never carries any warnings, so this test sets them on the
+	// command's context directly, the same seam run itself uses.
+	root.SetContext(withWarnings(context.Background(), wantWarnings))
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if !slices.Equal(gotOpts.Warnings, wantWarnings) {
+		t.Errorf("Warnings = %v, want %v", gotOpts.Warnings, wantWarnings)
+	}
+}
+
+// TestGenerate_UINoWarningsInContextPassesNilWarnings proves the
+// absence branch: a root command that never had withWarnings applied
+// to its context (every other --ui test in this file, and every real
+// invocation where registry.Load returned none) results in a nil
+// Options.Warnings, never a false-positive warning fabricated out of
+// nothing.
+func TestGenerate_UINoWarningsInContextPassesNilWarnings(t *testing.T) {
+	var gotOpts server.Options
+	defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+		gotOpts = opts
+		return nil
+	})()
+
+	reg := testRegistry(t)
+	root := newRootCmd(reg)
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"--ui"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v, stderr = %s", err, stderr.String())
+	}
+	if len(gotOpts.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none", gotOpts.Warnings)
+	}
+}
+
 func TestGenerate_UIDoesNotRequireATTY(t *testing.T) {
 	// Unlike --tui, --ui has nothing to do with the calling process's
 	// own stdio - "open a browser" works the same whether or not

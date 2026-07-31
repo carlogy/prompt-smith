@@ -874,6 +874,15 @@ func validateForceFlag(cmd *cobra.Command, opts *generateOptions) error {
 // takes a plain context.Context so it can be shut down deterministically
 // in a test (a context.WithCancel, not a real OS signal, which would
 // affect the whole test process).
+//
+// cmd.Context() carries registry.Load's warnings, stashed there by
+// run (root.go) before this command tree ever started executing - see
+// warningsContextKey's doc comment for why that's the mechanism rather
+// than a new parameter on runGenerate/runUI. On the CLI's other paths
+// those warnings just print to stderr after Execute returns; --ui has
+// no equivalent "after" moment (Serve blocks until ctx is done), so
+// this is what makes them reach the page at all instead of being
+// silently dropped.
 func runUI(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, goal string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -882,6 +891,7 @@ func runUI(cmd *cobra.Command, reg *registry.Registry, opts *generateOptions, go
 		Port:      opts.port,
 		NoBrowser: opts.noBrowser,
 		NoHints:   opts.noHints,
+		Warnings:  warningsFromContext(cmd.Context()),
 		Stdout:    cmd.OutOrStdout(),
 		// Seeds the page's form, exactly like --tui pre-populates the
 		// picker from the same flags (see runInteractive).

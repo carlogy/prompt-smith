@@ -20,6 +20,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -28,6 +29,40 @@ import (
 
 	"github.com/carlogy/prompt-smith/internal/registry"
 )
+
+// warningsContextKey is the context key run uses to make
+// registry.Load's warnings reachable from runUI (see generate.go)
+// without widening newRootCmd's or addGenerateFlags's signature.
+// Both are exercised directly by roughly ninety call sites across this
+// package's tests - every one of them builds a root command via
+// newRootCmd(reg) alone and none of them care about warnings - so
+// adding a parameter there would force every one of them to change
+// just to satisfy a mechanism only the --ui path needs (see runUI's
+// doc comment for what that path actually does with them). Cobra
+// already threads a context.Context through the whole command tree
+// (Command.Context/SetContext), so run stores warnings on it once,
+// here, right before Execute, and runUI reads them back via
+// warningsFromContext.
+type warningsContextKey struct{}
+
+// withWarnings returns ctx carrying warnings, readable back via
+// warningsFromContext.
+func withWarnings(ctx context.Context, warnings []string) context.Context {
+	return context.WithValue(ctx, warningsContextKey{}, warnings)
+}
+
+// warningsFromContext returns the warnings withWarnings stored on ctx,
+// or nil if none were stored - which is every test in this package
+// that builds its own root command via newRootCmd and calls Execute()
+// on it directly without ever calling withWarnings/SetContext (see
+// warningsContextKey's doc comment). cobra defaults a command's
+// context to context.Background() when Execute runs if nothing set
+// one, so ctx.Value here is always safe to call, never a nil-pointer
+// risk.
+func warningsFromContext(ctx context.Context) []string {
+	warnings, _ := ctx.Value(warningsContextKey{}).([]string)
+	return warnings
+}
 
 // Execute loads the registry, builds the command tree, and runs it,
 // exiting the process with a non-zero status on error. It's a thin
@@ -85,6 +120,11 @@ func run(stdout, stderr io.Writer, args []string) int {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.SetArgs(args)
+	// See warningsContextKey's doc comment for why this rides the
+	// command's own context rather than a new parameter threaded
+	// through newRootCmd: --ui (runUI, in generate.go) is the only
+	// thing downstream that ever reads it back.
+	root.SetContext(withWarnings(context.Background(), warnings))
 	cmdErr := root.Execute()
 
 	for _, w := range warnings {

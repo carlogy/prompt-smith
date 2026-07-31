@@ -49,6 +49,14 @@ type application struct {
 	// own comment on why it's assigned there rather than threaded
 	// through newApplication's parameter list.
 	noHints bool
+	// warnings mirrors Options.Warnings (server.go): handleIndex
+	// (page.go) renders each one in a notice region ahead of the form
+	// (index.html). Left at its zero value (nil) by newApplication
+	// itself and set by Serve once Options is in scope, for the exact
+	// same reason noHints above is - newApplication is also called
+	// directly by this package's own tests (testAppWithInitial), which
+	// have no Options value to draw a Warnings from.
+	warnings []string
 }
 
 // newApplication builds an application. A nil logger defaults to

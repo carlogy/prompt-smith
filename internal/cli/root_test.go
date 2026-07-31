@@ -19,10 +19,14 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/carlogy/prompt-smith/internal/registry"
+	"github.com/carlogy/prompt-smith/internal/server"
 )
 
 func TestNewRootCmd_HasExpectedSubcommands(t *testing.T) {
@@ -124,5 +128,43 @@ func TestRun_WarningsPrintBeforeTerminalError(t *testing.T) {
 	}
 	if warningAt > errorAt {
 		t.Errorf("warning printed at byte %d, error at byte %d - want the warning BEFORE the terminal error", warningAt, errorAt)
+	}
+}
+
+// TestRun_UIThreadsWarningsIntoServerOptions is the end-to-end
+// counterpart to TestRun_WarningsPrintAfterCommandSucceeds above: it
+// drives the real run() entry point (registry.Load, not a test
+// fixture) through to --ui and confirms the same malformed-skill
+// warning that reaches stderr on every other path also reaches
+// server.Options.Warnings here - proving the full chain run ->
+// withWarnings -> newRootCmd(reg).Execute() -> runGenerate -> runUI ->
+// warningsFromContext -> server.Options, not just one hop of it.
+func TestRun_UIThreadsWarningsIntoServerOptions(t *testing.T) {
+	t.Setenv("PROMPTSMITH_SKILLS_DIR", t.TempDir())
+	dir := os.Getenv("PROMPTSMITH_SKILLS_DIR")
+	writeMalformedUserSkill(t, dir)
+
+	var gotOpts server.Options
+	defer stubRunServer(t, func(ctx context.Context, reg *registry.Registry, opts server.Options) error {
+		gotOpts = opts
+		return nil
+	})()
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"--ui"})
+
+	if code != 0 {
+		t.Fatalf("run() = %d, want 0, stderr = %s", code, stderr.String())
+	}
+	const wantWarning = `skip testing/broken/SKILL.md: missing frontmatter: expected the file to start with "---"`
+	found := false
+	for _, w := range gotOpts.Warnings {
+		if strings.Contains(w, wantWarning) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("server.Options.Warnings = %v, want one containing %q", gotOpts.Warnings, wantWarning)
 	}
 }

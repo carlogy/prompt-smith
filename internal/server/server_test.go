@@ -18,6 +18,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -129,5 +130,76 @@ func TestServe_ListenErrorIsReturned(t *testing.T) {
 	case <-serveErr1:
 	case <-time.After(5 * time.Second):
 		t.Fatal("first Serve did not return within the deadline after cancel")
+	}
+}
+
+// TestServe_PropagatesWarningsToPageAndLogger proves Options.Warnings
+// reaches both places this unit's spec requires: the rendered index
+// page (app.warnings, assigned in Serve the same way NoHints is - see
+// Serve's own comment) and Logger, at warn level, once Serve starts -
+// the part that actually helps a detached/backgrounded server with no
+// attached terminal for cli's stderr print to ever reach.
+func TestServe_PropagatesWarningsToPageAndLogger(t *testing.T) {
+	reg := &registry.Registry{
+		Categories: []string{"debugging"},
+		Skills:     []registry.Skill{{ID: "diagnose", Category: "debugging", Body: "Build a feedback loop first."}},
+		Targets:    map[string]registry.TargetConfig{"generic": {ID: "generic", SkillMode: "inline"}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const wantWarning = "skip testing/broken/SKILL.md: missing frontmatter"
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, nil))
+
+	urlCh := make(chan string, 1)
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- Serve(ctx, reg, Options{
+			Port:      0,
+			NoBrowser: true,
+			Logger:    logger,
+			Stdout:    io.Discard,
+			Warnings:  []string{wantWarning},
+			Ready:     func(url string) { urlCh <- url },
+		})
+	}()
+
+	var url string
+	select {
+	case url = <-urlCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not become ready within the deadline")
+	}
+
+	resp, err := http.Get(url + "/")
+	if err != nil {
+		t.Fatalf("GET %s/ error = %v", url, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body error = %v", err)
+	}
+	if !strings.Contains(string(body), wantWarning) {
+		t.Errorf("GET / body missing warning %q, got:\n%s", wantWarning, body)
+	}
+
+	if !strings.Contains(logBuf.String(), wantWarning) {
+		t.Errorf("logger output missing warning %q, got:\n%s", wantWarning, logBuf.String())
+	}
+	if !strings.Contains(logBuf.String(), "level=WARN") {
+		t.Errorf("expected the warning to be logged at warn level, got:\n%s", logBuf.String())
+	}
+
+	cancel()
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			t.Errorf("Serve() error = %v, want nil on a clean shutdown", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not return within the deadline after cancel")
 	}
 }
