@@ -1,4 +1,4 @@
-.PHONY: fmt vet staticcheck build build-empty test test-e2e verify tidy update-golden gosec govulncheck security install install-empty ui-css ui-css-check print-tailwindcss-version release-check release-snapshot release-assert
+.PHONY: fmt vet staticcheck build build-empty test test-e2e verify tidy update-golden gosec govulncheck security install install-empty ui-css ui-css-check print-tailwindcss-version print-tailwindcss-sha256-linux-x64 release-check release-snapshot release-assert
 
 # fmt fails (non-zero exit) if any file needs gofmt, printing which ones.
 fmt:
@@ -85,7 +85,28 @@ install-empty:
 # print-tailwindcss-version below) rather than duplicating the
 # version number in .github/workflows/ci.yml. Bump it here if you
 # deliberately upgrade the CLI.
+#
+# TAILWINDCSS_SHA256_LINUX_X64 is the published sha256 of the
+# tailwindcss-linux-x64 release asset for TAILWINDCSS_VERSION above -
+# this is what CI's ubuntu-latest runner downloads (see
+# .github/workflows/ci.yml's ui-css-check job), NOT a general-purpose
+# hash of "the tailwindcss binary" - a developer running `make
+# ui-css`/`ui-css-check` locally on macOS or another arch has their
+# own platform's binary on PATH and this value plays no part in that.
+# Bumping TAILWINDCSS_VERSION means updating this hash too, or CI
+# fails with a checksum mismatch that looks like a supply-chain alarm
+# but is really just this constant being stale - get the new value
+# from the release's own sha256sums.txt, listed alongside the other
+# release assets at https://github.com/tailwindlabs/tailwindcss/releases.
+#
+# This is intentionally a hardcoded pin, not a fetch-and-verify
+# against that same sha256sums.txt at CI time: a manifest downloaded
+# from the same server serving the binary protects against
+# corruption in transit but not against a tampered or re-tagged
+# release - which is exactly what pinning a known-good hash here
+# guards against. Don't "simplify" this into fetching the sums file.
 TAILWINDCSS_VERSION ?= 4.3.3
+TAILWINDCSS_SHA256_LINUX_X64 ?= dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a
 
 # ui-css compiles the web UI's Tailwind input into the committed,
 # embedded internal/server/assets/static/app.css - run this after
@@ -120,11 +141,15 @@ ui-css:
 ui-css-check: ui-css
 	git diff --exit-code -- internal/server/assets/static/app.css
 
-# print-tailwindcss-version prints TAILWINDCSS_VERSION so CI can read
-# the pinned version from this one place instead of duplicating it in
-# YAML.
+# print-tailwindcss-version and print-tailwindcss-sha256-linux-x64
+# print TAILWINDCSS_VERSION and TAILWINDCSS_SHA256_LINUX_X64
+# respectively, so CI can read both pinned values from this one place
+# instead of duplicating either in YAML.
 print-tailwindcss-version:
 	@echo $(TAILWINDCSS_VERSION)
+
+print-tailwindcss-sha256-linux-x64:
+	@echo $(TAILWINDCSS_SHA256_LINUX_X64)
 
 verify: fmt vet staticcheck build test security
 	@echo "verify: all checks passed"

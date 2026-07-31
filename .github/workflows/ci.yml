@@ -78,21 +78,25 @@ jobs:
       # the version number here.
       - name: Read pinned Tailwind CLI version
         id: tailwindcss
-        run: echo "version=$(make -s print-tailwindcss-version)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(make -s print-tailwindcss-version)" >> "$GITHUB_OUTPUT"
+          echo "sha256_linux_x64=$(make -s print-tailwindcss-sha256-linux-x64)" >> "$GITHUB_OUTPUT"
 
       # Standalone CLI (https://tailwindcss.com/blog/standalone-cli),
       # not Node/npm - this repo has no committed Node toolchain and
       # none is needed at runtime (see the ui-css target's comment in
       # the Makefile). TAILWINDCSS_SHA256 is the linux-x64 checksum
-      # for this exact version, from the release's own
-      # sha256sums.txt (https://github.com/tailwindlabs/tailwindcss/releases) -
-      # it's platform-specific (only relevant to this ubuntu-latest
-      # runner) and must be updated alongside any TAILWINDCSS_VERSION
-      # bump in the Makefile.
+      # for this exact version, read from the Makefile's
+      # TAILWINDCSS_SHA256_LINUX_X64 above (see its comment there for
+      # where the value comes from and why it's a hardcoded pin) - it's
+      # platform-specific (only relevant to this ubuntu-latest runner)
+      # and lives in the Makefile alongside TAILWINDCSS_VERSION so a
+      # version bump is a single-file edit; this workflow never
+      # duplicates either value.
       - name: Install Tailwind standalone CLI
         env:
           TAILWINDCSS_VERSION: ${{ steps.tailwindcss.outputs.version }}
-          TAILWINDCSS_SHA256: dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a
+          TAILWINDCSS_SHA256: ${{ steps.tailwindcss.outputs.sha256_linux_x64 }}
         run: |
           curl -sfLo /usr/local/bin/tailwindcss \
             "https://github.com/tailwindlabs/tailwindcss/releases/download/v${TAILWINDCSS_VERSION}/tailwindcss-linux-x64"
