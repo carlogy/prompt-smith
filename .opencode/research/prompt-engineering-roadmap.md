@@ -568,7 +568,9 @@ were all read-only); this phase adds the first one, `Save`.
   `--save-preset`, empty name, path-traversal name, inherits a loaded
   preset's values, skipped on a goal conflict) including a mechanical
   `TestPresetFieldSpecs_EveryEntryHasBothFuncs` guard that every
-  `presetFieldSpecs` entry has both direction funcs non-nil.
+  `presetFieldSpecs` entry has both direction funcs non-nil (retired in
+  Phase 13 as a strict subset of Phase 10's three-func successor —
+  see that phase's note).
 
 **Fixed during this integration pass (not part of the three builders'
 work)**
@@ -1059,12 +1061,13 @@ Phase 3's lint pass lints `result.Inputs`. All seven preset fields
 were confirmed sourceable from `prompt.Inputs`.
 
 Guard test: new `TestPresetFieldSpecs_EveryEntryHasAllThreeFuncs` in
-`generate_preset_test.go`. Recorded as a deliberate wart: the older
-two-func `TestPresetFieldSpecs_EveryEntryHasBothFuncs` still lives in
-`generate_save_preset_test.go`, kept byte-untouched apart from a
-mechanical closure-signature edit, because it is Phase 6's regression
-canary. The old guard is now a redundant strict subset of the new one
-and is a candidate for retirement — see Deferred follow-ups.
+`generate_preset_test.go`. Recorded as a deliberate wart at the time:
+the older two-func `TestPresetFieldSpecs_EveryEntryHasBothFuncs` still
+lived in `generate_save_preset_test.go`, kept byte-untouched apart
+from a mechanical closure-signature edit, because it was Phase 6's
+regression canary. The old guard was a redundant strict subset of the
+new one and was flagged as a candidate for retirement.
+**Retired in Phase 13** — see that phase's note.
 
 Tests added: 8 direct-`Update` tests, 1 view test, 1 `teatest`
 end-to-end test, and 1 footer-content test in `internal/tui`; 6
@@ -1231,6 +1234,196 @@ gap.
   covered only by the `teatest` harness and direct-`Update` tests, so
   a hands-on check in a real terminal remains open.
 
+### Phase 13 — footer priority reorder, Tailwind checksum co-location, one retired test
+Three independent, file-disjoint units, one integration pass. Commits
+`ci: keep the tailwind version and checksum in one place`, `fix(tui):
+order footer hints by priority and restore tab's label`, `test(cli):
+retire the subsumed presetFieldSpecs guard`.
+
+**The footer — including its decision history, since the reasoning is
+the durable part.** The `focusSkills` row had been hand-tuned by Phase
+10 to exactly 80 of 80 columns, which cost Tab its description
+(`withLabel(k.Tab, "tab", "")`) and produced a visible stray double
+space where the empty desc met the separator bullet — a real, shipped
+cosmetic bug, not a style nit.
+
+- **The mechanism, confirmed by reading `bubbles/help@v1.0.0`'s own
+  source, not inferred:** `help.KeyMap`'s doc comment states help
+  renders "in the order in which the help items are returned",
+  and `ShortHelpView`'s loop (`shouldAddItem`) appends `"…"` and
+  `break`s the moment the next entry would overflow `m.help.Width` —
+  it never wraps to a second line. **Order is the priority API** —
+  this is the intended mechanism the library ships, not a workaround
+  for a limitation.
+- **First reversal:** the first cut put `esc cancel` **first**, so it
+  would survive down to width 40 on priority alone. Rejected: an exit
+  key leading a footer is unconventional placement, regardless of
+  whether the width math works out.
+- **Second reversal, final:** `esc cancel` moved to **last**, by
+  convention. That makes it the *first* truncation casualty, which
+  means the row now has to fit within 80 columns for cancel to
+  survive — a width-budget guarantee, not a priority-order one. The
+  room for that got bought by tightening `help.Model.ShortSeparator`
+  from `bubbles/help`'s default `" • "` (3 cols) to two plain spaces
+  (2 cols) in `newModel` — 1 column back per gap, across the six gaps
+  in this row. Measured (not estimated) via a direct call to
+  `viewFooter()` at width 200 (uncapped) with `stripANSI`: `focusSkills`
+  is **78** of 80 columns, `focusPreview` is **76**. `FullSeparator`
+  (the `?` overlay's column gap, default `"    "`, 4 cols) was
+  deliberately left untouched — the overlay has no width pressure and
+  a tighter gap there would only hurt legibility for no benefit.
+- **The 80-column budget is back as a real constraint.** With ~2
+  columns of slack on `focusSkills` and ~4 on `focusPreview`, adding a
+  key now needs a genuine trade again — state this plainly so nobody
+  reads "order is the priority API" as "appends are free." They are
+  not; truncation only decides *which* entry goes missing, not whether
+  the row keeps growing forever.
+- Rejected alternatives, and why: dropping `tab next` (loses the very
+  thing this fix restores); abbreviating `enter` to `ent` (breaks a
+  pinned test literal); Tab with an empty description (that *was* the
+  stray-double-space bug this phase fixes).
+- `s save` is now advertised in `focusPreview`, not just
+  `focusSkills`, closing an inconsistency rather than adding a feature:
+  `s`/`c`/`w`/`?` dispatch identically from both zones (both fall
+  through to `updatePicker`; `model.go` documents that every other
+  zone returns first), so advertising `s` in only one of the two was
+  an oversight. Its `c`/`w` pair folds into one `"c/w copy/write"`
+  entry, the same way `↑`/`↓` already fold into one arrow glyph — that
+  fold is what buys the room.
+- **Correction to this roadmap's own earlier claim.** The Deferred
+  follow-ups list (removed below, now closed) said `focusPreview` "has
+  no spare columns either." Measured directly against the pre-Phase-13
+  row (`git worktree` at the parent commit): it rendered at 74 of 80
+  columns — **roughly 6 columns of slack**, not zero — and no test
+  pinned `copy`/`write`/`save` in that row at all, so nothing was
+  actually blocking the addition. The claim was wrong; recorded here
+  so it isn't repeated.
+- New test `TestShortHelp_PriorityOrderSurvivesTruncation` pins:
+  `cancel`/`s save`/`tab next` all present at widths 80/100/120, `esc
+  cancel` is the final `ShortHelp()` entry, and height stays exactly 1
+  row at width 40.
+
+**The Charm v2 investigation — recorded because it will be asked
+again.** All three Charm v2 module lines are now GA:
+`bubbletea/v2 v2.0.8`, `bubbles/v2 v2.1.1`, `lipgloss/v2 v2.0.5` (as of
+2026-07-31). The pinned v1 `bubbles` line is already at its newest —
+**v1.0.0 is the latest v1 tag** — so there is no in-line v1 upgrade
+available; the only forward path is v2.
+- **`bubbles/v2@v2.1.1`'s `help.ShortHelpView` is the same algorithm as
+  v1.0.0's** — same loop, same `shouldAddItem` ellipsis-then-`break`.
+  No priority system, no multi-line short help, no responsive dropping
+  of individual entries. The only changes are cosmetic: `Width`
+  becoming `SetWidth()`/`Width()` methods instead of a public field,
+  and `DefaultStyles(isDark bool)` using `lipgloss.LightDark`. **A v2
+  upgrade offers nothing for the footer problem this phase just
+  solved.** Recorded explicitly so this isn't re-derived next time
+  someone proposes "just upgrade to v2" as the fix for a footer
+  space problem.
+- v2.1.1's source imports `charm.land/bubbles/v2`, suggesting a
+  module-path change away from `github.com/charmbracelet/...` —
+  **unverified from this repo alone**, flagged as such.
+- Full migration-surface measurement written to
+  `.opencode/research/charm-v2-migration-surface.md` (registered under
+  Retained research files below). Confined entirely to `internal/tui`
+  — 2,680 production + 4,341 test lines across 23 test files; nothing
+  else in the repo imports any `charmbracelet` module, confirmed by
+  grep, not assumption. Highlights: 136 literal `tea.KeyMsg{}`
+  constructions in tests would need renaming to `tea.KeyPressMsg{}`.
+  v1's single `tea.MouseMsg` (with an `Action` enum) **splits into four
+  distinct v2 message types** (`MouseClickMsg`/`MouseReleaseMsg`/
+  `MouseMotionMsg`/`MouseWheelMsg`) — 8 sites needing genuine
+  restructuring, not renaming. Four sites do `msg.Type == tea.KeyRunes`
+  plus `string(msg.Runes)` for bare-rune dispatch (`c`/`w`/`s`/`y`/`n`/
+  `?`), which `keys.go`'s own comments say exist *because* a generic
+  rune catch-all can't be expressed as one `key.Binding` — v2 replaces
+  `Type`/`Runes` with a `Key{Text, Mod, Code}` shape, so these are
+  load-bearing logic to re-derive, not search-and-replace targets.
+  `tea.NewProgram`'s `WithAltScreen()`/`WithMouseCellMotion()` v2
+  equivalents are unconfirmed from the public API surface inspected.
+  The single biggest unknown: this repo depends on
+  `charmbracelet/x/exp/teatest` at a commit pseudo-version with no
+  confirmed v2-compatible successor — a bad outcome there would strand
+  the end-to-end TUI tests, including Phase 10's save-preset one.
+- Migration was investigated and **declined** for now — the surface is
+  large, several sites are non-mechanical, and the one component this
+  phase actually needed (`help.ShortHelpView`'s truncation behavior)
+  is identical in both versions anyway.
+
+**Tailwind checksum co-location.** `TAILWINDCSS_SHA256_LINUX_X64` moved
+from `ci.yml` into the Makefile, next to `TAILWINDCSS_VERSION`, with a
+new `print-tailwindcss-sha256-linux-x64` target CI reads alongside the
+existing `print-tailwindcss-version` one — so a version bump is now a
+single-file edit instead of the two-file edit Phase 11 flagged.
+Deliberately **not** switched to fetching the release's own
+`sha256sums.txt` at CI time: a manifest fetched from the same server
+serving the binary protects against corruption in transit but not
+against a tampered or re-tagged release, which is exactly what a
+pinned known-good hash guards against — the pin is the entire point,
+not a workaround for not having automated it yet. Documented directly
+in the Makefile comment so a future reader doesn't "simplify" this
+into a fetch-and-verify. What still has to happen by hand on a version
+bump: fetching the new linux-x64 hash from the release's own
+`sha256sums.txt` and pasting it in. Hash value is byte-identical to
+before; only its location changed.
+
+**Guard test retired.** `TestPresetFieldSpecs_EveryEntryHasBothFuncs`
+(Phase 6, `generate_save_preset_test.go`) checked that every
+`presetFieldSpecs` entry had non-nil `apply`/`collect` funcs. Phase
+10's `TestPresetFieldSpecs_EveryEntryHasAllThreeFuncs` checks all
+three funcs, strictly including those same two, so the older test
+added no coverage the newer one didn't already give — it was kept
+around only as Phase 6's regression canary (see that phase's note and
+Phase 10's). Deleted, with its unique reasoning merged into the
+surviving test's doc comment rather than lost: a nil `apply` or
+`collect` would panic at runtime the first time that entry's direction
+is exercised (`applyPreset` for apply, `collectPresetFromOpts` for
+collect), not fail at compile time, since table literals don't enforce
+"every field must be set." Also corrected a now-false sentence in that
+comment, which had described the newer test as living in a separate
+file specifically to leave the older one untouched — no longer true
+now that the older one is gone.
+
+**Verification.** `gofmt -l .`, `go vet ./...`, `go build ./...`,
+`staticcheck ./...`, `go test ./... -race -count=1`, `make
+build-empty` plus `go vet -tags empty`/`staticcheck -tags empty`,
+`gosec -quiet ./...`, `govulncheck ./...`, `make ui-css-check`,
+`goreleaser check`, `make verify`, and `actionlint
+.github/workflows/ci.yml` all clean, with **zero gosec/govulncheck
+delta** against the Phase 10-12 baseline
+(`.opencode/validation/phase10-12/baseline.md`, local-only) — both
+were already clean there, and remained clean here. Both
+`make -s print-tailwindcss-version` (`4.3.3`) and `make -s
+print-tailwindcss-sha256-linux-x64` (the 64-hex-char pinned hash)
+print exactly the expected value with no stray output, confirming
+CI's shell-substitution reads will work. `make test-e2e` was not run
+locally — `docker info` failed, as in every prior phase; covered by
+CI's `E2E` workflow instead. A real binary was smoke-tested
+proportionately to this phase's small blast radius (no full sweep):
+`--help`/`--version`/`list`, a piped non-interactive generate, and
+`make ui-css-check` confirmed to leave `app.css` untouched
+(`git status --porcelain` on that path empty both before and after).
+The three named tests
+(`TestShortHelp_PriorityOrderSurvivesTruncation`,
+`TestFooter_StaysOneRowAtNarrowWidth`,
+`TestView_FooterAlwaysPresentRegardlessOfContent`) pass by name; the
+interactive footer itself was **not** verified in a real terminal —
+that remains a manual step (folded into the existing deferred item
+below, which now covers both the save-preset flow and this reorder).
+- Each of the three commits was independently verified to build and
+  pass its package's tests in an isolated `git worktree`, not merely
+  diffed — the file sets were fully disjoint (`Makefile` +
+  `.github/workflows/ci.yml`; `internal/tui/keys.go` +
+  `keys_test.go` + `model.go`; `internal/cli/generate_save_preset_test.go`
+  + `generate_preset_test.go`), confirmed via `git status` before
+  staging, so no hunk-level staging was needed for any of the three.
+- Pushed to `main`. All CI and E2E jobs completed with conclusion
+  `success`, including `ui-css-check` specifically (the job most at
+  risk from the checksum move) on its first run against the new
+  Makefile-sourced value.
+- `gh` was authenticated only to an enterprise host, so job-log fetches
+  again required unauthenticated `api.github.com` calls for check-run
+  metadata, matching Phase 10-12's same limitation.
+
 ## Explicitly out of scope
 - Long-context section reordering. If revisited: opt-in `--layout` flag,
   default unchanged.
@@ -1280,41 +1473,49 @@ gap.
   232-246), where they drive `aria-busy` and the `role="status"`
   announcement, plus swapping the vendored asset. Revisit when 4.0.0
   goes stable.
-- **Real-terminal confirmation of the TUI save-preset flow.** Phase
+- **Real-terminal confirmation of the TUI's interactive flows.** Phase
   10's `s` flow — name entry, the y/n overwrite confirm, and the
   actual `preset.Save` call — is exercised only by the `teatest`
   harness and direct `model.Update` calls; nothing has driven it
-  through a real terminal by hand. Low risk (the mechanism is a
-  straight copy of the `w` flow's already-proven pattern) but still an
-  open item.
-- **Two Phase 10 footer cosmetics.** Tab's now-empty description
-  renders a harmless double space before its separator bullet; the
-  only freely-droppable label in the `focusSkills` row was Tab's,
-  since every other label there is a test-asserted literal, so
-  restoring "next" requires finding a different trade first. And `s`
-  is reachable from `focusPreview` too (it falls through to
-  `updatePicker`, the same as `c`/`w`) but isn't advertised in that
-  row's `ShortHelp`, which has no spare columns either. Precedent:
-  Phase 1 deferred two cosmetic items the same way.
+  through a real terminal by hand. Phase 13's reordered footer row
+  (both zones, and the `esc cancel`-last / tightened-separator
+  mechanics behind it) is in the same position — covered by
+  `TestShortHelp_PriorityOrderSurvivesTruncation`,
+  `TestFooter_StaysOneRowAtNarrowWidth`, and
+  `TestView_FooterAlwaysPresentRegardlessOfContent`, but not by eyes on
+  a real terminal. Low risk in both cases (save-preset is a straight
+  copy of the `w` flow's already-proven pattern; the footer reorder is
+  covered by three tests including one that pins exact substring
+  presence and position at multiple widths) but still an open item.
 - **`preset.Save` has no `ErrExists` sentinel.** See Phase 10's note
   above — a one-line addition if a caller ever needs to detect the
   already-exists case programmatically rather than by string.
-- **The redundant two-func `presetFieldSpecs` guard test.** Phase 10's
-  `TestPresetFieldSpecs_EveryEntryHasAllThreeFuncs` strictly subsumes
-  the older `TestPresetFieldSpecs_EveryEntryHasBothFuncs` in
-  `generate_save_preset_test.go`. The old test is a candidate for
-  retirement; kept for now because it's Phase 6's regression canary.
-- **The Tailwind checksum requires a second edit on a version bump.**
-  See Phase 11's note above: `TAILWINDCSS_VERSION` lives in the
-  Makefile, but the linux-x64 sha256 CI checks it against lives in
-  `ci.yml`, so a version bump has to touch both or CI fails for the
-  wrong reason.
+- **`focusExamples`'s footer row is tight at wide terminals too, for a
+  different reason than the skills/preview rows.** Found while
+  measuring Phase 13's column budgets, out of scope for that phase:
+  this zone's footer descriptor sentence (`footerDescriptorFor`) is
+  long enough that `help.Width` is already at or near zero by 120
+  columns, squeezing out its own keybind hints before truncation ever
+  gets a chance to prioritize between them. The descriptor-to-keybind
+  gap here is `viewFooter`'s own fixed `"  "` literal, not
+  `ShortSeparator` — so Phase 13's separator tightening does not touch
+  this zone's problem at all, and any fix belongs to a different code
+  path than the one this phase changed.
 
 ## Dependency notes
 Pinned `bubbletea v1.3.10` / `bubbles v1.0.0` / `lipgloss v1.1.0` are
 **v1** APIs. The Charm GitHub READMEs document v2 (e.g.
 `tea.KeyPressMsg` vs. this repo's `tea.KeyMsg`) — their examples cannot
-be copied verbatim.
+be copied verbatim. As of Phase 13 (2026-07-31), all three v2 lines
+are GA (`bubbletea/v2 v2.0.8`, `bubbles/v2 v2.1.1`, `lipgloss/v2
+v2.0.5`); the pinned v1 `bubbles` line is already at its newest tag
+(v1.0.0), so there is no in-line v1 upgrade available. Migration to v2
+was investigated in Phase 13 and explicitly declined for now — see
+that phase's note and `.opencode/research/charm-v2-migration-surface.md`
+for the full surface (confined to `internal/tui`; several sites are
+non-mechanical, notably the `tea.MouseMsg`→four-message-type split and
+the unconfirmed v2 successor to the pinned `charmbracelet/x/exp/teatest`
+harness).
 
 ## Retained research files
 - `.opencode/research/ui-web-server.md` — retained deliberately as an
@@ -1323,3 +1524,8 @@ be copied verbatim.
   existed to support Phase 1, which has now landed.
 - `.opencode/research/cli-lint-hints-wiring.md` — deleted; it existed
   to support Phase 3, which has now landed.
+- `.opencode/research/charm-v2-migration-surface.md` — retained
+  deliberately: the Charm v2 GA lines will surface again ("just
+  upgrade" is a predictable suggestion), and this file is the
+  measured answer for why that's not a quick win, so the analysis
+  doesn't need re-deriving from scratch next time it comes up.
