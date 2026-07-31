@@ -23,6 +23,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/carlogy/prompt-smith/internal/prompt"
 )
@@ -174,5 +175,57 @@ func TestShortHelp_FocusSkillsAdvertisesSave(t *testing.T) {
 	got := stripANSI(m2.viewFooter())
 	if !strings.Contains(got, "s save") {
 		t.Errorf("expected the skills-focused footer to advertise \"s save\", got: %q", got)
+	}
+}
+
+// TestShortHelp_PriorityOrderSurvivesTruncation pins the acceptance
+// criteria behind ShortHelp's focusSkills/focusPreview cases (see the
+// doc comment above them in keys.go): "esc cancel" is pinned LAST by
+// convention rather than by need, which only works because the row is
+// kept within the standard 80-column footer in the first place - so
+// what this test actually pins is that 80-column fit, not "cancel
+// survives truncation" the way an order-is-priority scheme alone would
+// give you. At 80 and above, the full row (including "s save" and
+// "tab next", the two entries that would be the first casualties if
+// the row didn't fit) must render intact with "esc cancel" as its
+// final entry. Below 80, ellipsis is expected to start eating the
+// row - from the front of the "these can go" region, i.e. right after
+// the last conventionally-placed entry - and "esc cancel" is allowed
+// to go with it; the row staying exactly one line either way is
+// TestFooter_StaysOneRowAtNarrowWidth's job, not this test's.
+func TestShortHelp_PriorityOrderSurvivesTruncation(t *testing.T) {
+	reg := fixtureRegistry()
+
+	for _, tc := range []struct {
+		name string
+		zone focusZone
+	}{
+		{"skills", focusSkills},
+		{"preview", focusPreview},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "goal"})
+
+			for _, w := range []int{80, 100, 120} {
+				updated, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 20})
+				mm, _ := updated.(model).changeFocus(tc.zone)
+				got := stripANSI(mm.(model).viewFooter())
+				for _, want := range []string{"cancel", "s save", "tab next"} {
+					if !strings.Contains(got, want) {
+						t.Errorf("width=%d: expected footer to advertise %q, got: %q", w, want, got)
+					}
+				}
+				if !strings.HasSuffix(got, "esc cancel") {
+					t.Errorf("width=%d: expected \"esc cancel\" to be the final entry, got: %q", w, got)
+				}
+			}
+
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+			mm, _ := updated.(model).changeFocus(tc.zone)
+			footer := mm.(model).viewFooter()
+			if h := lipgloss.Height(footer); h != 1 {
+				t.Errorf("width=40: viewFooter() height = %d, want exactly 1 row; got: %q", h, stripANSI(footer))
+			}
+		})
 	}
 }

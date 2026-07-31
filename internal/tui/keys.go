@@ -119,55 +119,104 @@ func withLabel(b key.Binding, keyLabel, desc string) key.Binding {
 func (k keyMap) ShortHelp() []key.Binding {
 	switch k.zone {
 	case focusSkills:
-		// PgUp/PgDn now also page the skill list (updatePicker), but
-		// that's deliberately NOT advertised here the way it is in
-		// focusPreview below: this row is already at the one-row
-		// footer's width budget at 80 columns (found via
-		// TestFooter_StaysOneRowAtNarrowWidth's own comment, and
-		// confirmed the hard way - adding "pgup/pgdn" here pushed the
-		// rendered row past 80 cols and ellipsized "esc cancel" clean
-		// off the end, breaking
-		// TestView_FooterAlwaysPresentRegardlessOfContent). FullHelp's
-		// PgUp entry (below) documents it instead, where there's no
-		// such width constraint - ShortHelp already omits other real
-		// bindings per zone this same way (e.g. CtrlC isn't listed
-		// here either, despite Esc/CtrlC both canceling).
+		// bubbles/help's ShortHelpView (vendored at
+		// bubbles@v1.0.0/help/help.go) walks this slice in the exact
+		// order it's returned and, the moment the next entry would
+		// overflow m.help.Width, appends "…" and stops - it never
+		// wraps to a second line (help.KeyMap's own doc comment: "The
+		// help bubble will render help in the order in which the help
+		// items are returned here"). That still makes ORDER the
+		// truncation-priority signal for everything in this slice -
+		// EXCEPT "esc cancel", which is deliberately pinned LAST
+		// despite being the entry a stuck user most needs, because
+		// convention says the exit key goes at the end of a footer,
+		// not the front. Putting the conventionally-last entry in the
+		// position ellipsis eats first only works because this row is
+		// kept within the 80-column footer's standard width in the
+		// first place - "esc cancel" surviving is a width-budget
+		// guarantee here, not a priority-order one:
 		//
-		// Adding "s save" (below) re-hit that same 80-col ceiling, so
-		// two existing entries were shortened rather than appending
-		// past it: Tab's desc drops from "next" to "" (Tab's action
-		// isn't asserted anywhere in this zone's tests - only
-		// "move"/"select"/"ok" are, per TestFooter_ReflectsFocusedZone
-		// - so there's nothing pinning that word here, unlike
-		// "copy"/"write"/"cancel" below, which the same tests DO
-		// assert and which is why those keep their full desc text
-		// instead of being dropped the same way), and Copy+Write fold
-		// into one combined entry ("c/w copy/write") the same way
-		// Up+Down already fold into "\u2191/\u2193" - two keys sharing
-		// one visual slot, not a wording cut. Together that's exactly
-		// enough room for "s save" at exactly 80 columns - measured,
-		// not estimated (go run against a copy of bubbles/help's own
-		// ShortHelpView loop, since m.help.Width is set to termWidth
-		// with no width-hungry descriptor for this zone - see
-		// footerDescriptorFor("") and viewFooter's sep math). There is
-		// currently zero slack left in this row; widening it further
-		// needs the same kind of trade, not a plain append.
+		//   1. space select - the core mechanic of this zone; without
+		//                     it the picker does nothing.
+		//   2. ↑/↓ move     - needed to reach the skill you want to
+		//                     select in the first place.
+		//   3. enter ok     - submits/confirms; a real action, but one
+		//                     step removed from picking skills.
+		//   4. c/w copy/write - fast paths that duplicate what "ok"
+		//                     already reaches via the preview.
+		//   5. s save       - newest and least-reached-for of the real
+		//                     actions; would be the first casualty if
+		//                     cancel weren't fixed at the end.
+		//   6. tab next     - second-to-last on purpose: Tab only
+		//                     moves focus between panes that are
+		//                     already visible and mouse-clickable, and
+		//                     "?" documents it in full (FullHelp
+		//                     below) - so of everything ranked ABOVE
+		//                     cancel, this is the correct next
+		//                     casualty. (Its full "next" desc is what
+		//                     fixed the stray "tab  ·" double space a
+		//                     prior phase introduced by shipping Tab
+		//                     with an empty desc instead.)
+		//   7. esc cancel   - LAST by convention, not by priority -
+		//                     see above.
+		//
+		// Because cancel's survival now depends on the row fitting in
+		// 80 columns rather than on its position, this row's width is
+		// a real, finite budget again: measured at exactly 78 columns
+		// with help.Model.ShortSeparator tightened from bubbles/
+		// help's default " • " (3 cols) to "  " (2 cols) - see
+		// newModel (model.go) - which is what buys back the ~6 columns
+		// six gaps cost and is the only reason "tab next" AND "s save"
+		// AND "esc cancel" all fit together at 80 without dropping
+		// anything. There is ~2 columns of slack left at 80,
+		// not "no budget to defend" - a future addition here needs
+		// either a trade (shortening/folding an existing entry) or
+		// another separator/label saving, the same kind of trade this
+		// row needed before, not a free append past the 7th slot.
+		// TestShortHelp_PriorityOrderSurvivesTruncation checks widths
+		// {40, 60, 80, 100, 120} for exactly this reason: 80 is no
+		// longer an arbitrary sample point, it's the width the whole
+		// row is now tuned to survive intact.
+		//
+		// PgUp/PgDn (which also page the skill list, via updatePicker)
+		// still isn't listed at all here, by the same reasoning taken
+		// one step further - FullHelp's PgUp entry documents it where
+		// there's no truncation to worry about.
 		return []key.Binding{
-			withLabel(k.Up, "\u2191/\u2193", "move"),
 			k.Space,
-			withLabel(k.Tab, "tab", ""),
+			withLabel(k.Up, "\u2191/\u2193", "move"),
 			withLabel(k.Enter, "enter", "ok"),
 			key.NewBinding(key.WithKeys("c", "w"), key.WithHelp("c/w", "copy/write")),
 			k.Save,
+			withLabel(k.Tab, "tab", "next"),
 			withLabel(k.Esc, "esc", "cancel"),
 		}
 	case focusPreview:
+		// Same reasoning as focusSkills above (including "esc cancel"
+		// pinned last by convention, and this row's own 80-column
+		// budget under the tightened ShortSeparator - see that
+		// comment for the full explanation), mirrored for this zone's
+		// own actions (scrolling stands in for move/select as the
+		// "core mechanic" here) - kept deliberately parallel rather
+		// than re-deriving a different ranking, since nothing about
+		// this zone's keys is more or less important relative to each
+		// other than the skills-zone equivalents are. c/w folds into
+		// one entry the same way it does above (was two separate
+		// bindings; nothing pinned that split, and folding it buys
+		// room this zone's row needed for "s save", which nothing
+		// pinned against either - see the task note that this zone's
+		// tests assert nothing about s/save/copy/write specifically).
+		// Measures shorter than focusSkills' row (76 vs 78 columns),
+		// so it has a little more slack, but is deliberately NOT
+		// treated as having a separate, looser budget - keeping both
+		// rows built the same way is worth more than spending that
+		// slack on something skills' row can't afford.
 		return []key.Binding{
 			withLabel(k.Up, "\u2191/\u2193 pgup/pgdn", "scroll"),
-			withLabel(k.Tab, "tab", "next"),
 			withLabel(k.Enter, "enter", "ok"),
-			k.Copy,
-			k.Write,
+			key.NewBinding(key.WithKeys("c", "w"), key.WithHelp("c/w", "copy/write")),
+			k.Save,
+			withLabel(k.Tab, "tab", "next"),
 			withLabel(k.Esc, "esc", "cancel"),
 		}
 	case focusTarget:

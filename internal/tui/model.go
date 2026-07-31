@@ -200,6 +200,18 @@ func newModel(reg *registry.Registry, initial prompt.Inputs) model {
 	// up front, matching the rest of this package's styling living in
 	// theme.go rather than scattered per-callsite.
 	h := help.New()
+	// ShortSeparator's default is " • " (3 cols); tightened to two
+	// plain spaces (2 cols) to buy back exactly 1 column per gap in
+	// the one-row ShortHelpView footer - see keys.go's ShortHelp doc
+	// comment for why that column count is load-bearing (it's what
+	// keeps "esc cancel" inside the 80-column footer at the standard
+	// terminal width once cancel moved to the end of the priority
+	// order for conventional footer placement). FullSeparator (the "?"
+	// overlay's column gap) is deliberately left at its wider default:
+	// the overlay has no such width pressure, and a tighter gap there
+	// would just make its columns harder to visually separate for no
+	// benefit.
+	h.ShortSeparator = "  "
 	h.Styles.ShortKey = helpKeyStyle
 	h.Styles.ShortDesc = helpDescStyle
 	h.Styles.ShortSeparator = helpSeparatorStyle
