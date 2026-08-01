@@ -1762,6 +1762,70 @@ authenticated only to an enterprise host, so check-run metadata came
 from unauthenticated `api.github.com` calls, matching every prior
 phase's same limitation.
 
+### Phase 15 — three toolkit skills embedded, stale skill counts corrected
+Commit `feat(registry): embed 3 new skills, 14->17 total`.
+
+- Three skills embedded from the user's local toolkit
+  (`~/.config/.opencode-toolkit/skills`): `domain-modeling`, `prototype`,
+  `wayfinder`. Embedded registry goes 14 → 17.
+- Of the toolkit's 14 skills, only these 3 were new. The other 11 share
+  ids with skills already embedded (`architect`, `caveman`,
+  `caveman-commit`, `caveman-review`, `codebase-course`, `convention`,
+  `diagnose`, `grill-me`, `lean-code`, `tdd`, `verify`) and were
+  deliberately left alone.
+- All three went to `planning` at `order` 40/50/60, appending at the next
+  multiples of 10 without renumbering `architect`/`convention`/`grill-me`
+  (10/20/30). `planning` now holds 6 skills against 1-3 in every other
+  category — an accepted asymmetry, recorded so it isn't mistaken for an
+  oversight.
+- **Bodies were condensed to house style, not copied.** The toolkit
+  sources are 89/61/140 lines of structured markdown (headings, tables,
+  anti-pattern lists); the embedded bodies
+  (`internal/registry/data/bodies/planning/{domain-modeling,prototype,
+  wayfinder}.md`) are 14/16/16 lines of dense prose matching all 14
+  existing bodies. The reason is mechanical: the `generic` target
+  inlines bodies into the prompt and `internal/promptlint` fires an
+  oversized-prompt hint past 8,000 characters (Phase 3's rule 6). Measured
+  after the fact: all three selected together on `generic` produces
+  **3,505 characters** with no oversized hint — substantial headroom
+  left.
+- **Harness-specific paths were stripped from two bodies before
+  shipping.** As first drafted, `wayfinder` named
+  `.opencode/wayfinder/<effort-slug>/map.md` and `domain-modeling` named
+  `.opencode/domain-model/CONTEXT.md` plus
+  `.opencode/domain-model/adr/NNNN-slug.md`. None of the 14 pre-existing
+  bodies names a harness directory at all, and since the `generic` target
+  inlines bodies verbatim, a `claude-code`, `codex`, or `gemini-cli` user
+  would have been instructed to write into opencode's config directory.
+  Both now describe their artifacts by role and structure in a
+  project-local location. `bodies/planning/architect.md` is the
+  precedent — it deliberately dropped its own write-to-disk step. A
+  `grep` of the bodies directory for `.opencode`/`.claude` now returns
+  zero matches, which is the check to re-run if anyone adds a body
+  later.
+- **One test had to change, and the reason belongs on record.**
+  `TestView_RealRegistrySurfacesCodingLeanCode` (`internal/tui/model_test.go`)
+  builds the model from the real embedded registry and asserts
+  `lean-code` renders. Three more `planning` skills pushed that list past
+  the default viewport, so `lean-code` fell below the initial scroll
+  window at cursor 0 and the test failed. Fixed by moving the cursor to
+  `lean-code`'s index before rendering. The guard it exists for — a skill
+  silently dropped or miscategorized — still holds, and it now also
+  exercises cursor-follow scrolling, but it can no longer fail from a
+  list-length or ordering regression.
+- **Stale counts corrected, one of which predates this change.**
+  `README.md` claimed "11 built-in skills" and was **already wrong at
+  14** before this work; `docs/releasing.md` and
+  `internal/registry/integration_test.go` were accurate at 14. All three
+  now say 17. The README's staleness was pre-existing, so this isn't
+  purely a consequence of the new skills.
+
+**Verification.** `gofmt -l .` clean; `go vet ./...` clean;
+`staticcheck ./...` clean; `go build ./...` clean; `go test ./...` green;
+`make build-empty` compiles under the `empty` tag. A real binary's
+`validate` printed `registry ok` at exit 0, and `list` showed all three
+new skills under `PLANNING`, appearing after `grill-me` as ordered.
+
 ## Explicitly out of scope
 - Long-context section reordering. If revisited: opt-in `--layout` flag,
   default unchanged.
@@ -1895,6 +1959,21 @@ phase's same limitation.
   repo. None of these are wrong per se — README itself is accurate and
   thorough — the gap is discoverability from the tool at runtime, not
   documentation completeness.
+- **The 11 overlapping embedded bodies may have fallen behind the
+  toolkit.** Their embedded versions are 70-91% condensations of the
+  current toolkit text, uniformly in that direction (embedded shorter,
+  never the reverse) — consistent with deliberate condensation, but
+  `tdd` is 9 embedded lines against 102 in the toolkit and `diagnose` 10
+  against 83, so real operative content may have been lost rather than
+  merely compressed. Open question, not a defect: whether any of the 11
+  needs re-condensing from current toolkit text. Not acted on.
+- **`internal/registry/data-empty/skills.yaml` declares 8 categories
+  where `data/skills.yaml` declares 10** — missing `research` and
+  `safety`, which exist for `quote-grounding` and `safe-actions`.
+  Pre-existing drift, not triggered by this change (all three new
+  skills went into `planning`, already declared in both). Matters only
+  if a future skill introduces a new category, since `data-empty`
+  claims to hold the canonical categories scaffold.
 
 ## Dependency notes
 Pinned `bubbletea v1.3.10` / `bubbles v1.0.0` / `lipgloss v1.1.0` are
