@@ -39,6 +39,36 @@ skills:
       ambiguous term and edge case is resolved.
     body: bodies/planning/grill-me.md
 
+  - id: domain-modeling
+    name: Domain Modeling
+    category: planning
+    order: 40
+    when_to_use: >-
+      Pinning down terminology or ubiquitous language, recording a
+      hard-to-reverse architectural decision, or keeping a project's glossary
+      and decision log up to date as the domain model is actively changed.
+    body: bodies/planning/domain-modeling.md
+
+  - id: prototype
+    name: Prototype
+    category: planning
+    order: 50
+    when_to_use: >-
+      Sanity-checking whether a state model, data shape, or piece of business
+      logic feels right before committing to it, via small throwaway code
+      rather than production-quality work.
+    body: bodies/planning/prototype.md
+
+  - id: wayfinder
+    name: Wayfinder
+    category: planning
+    order: 60
+    when_to_use: >-
+      Charting a large multi-session effort as a durable map of decision
+      tickets on disk, then resolving them one at a time until the route to
+      the goal is clear.
+    body: bodies/planning/wayfinder.md
+
   - id: quote-grounding
     name: Quote Grounding
     category: research

@@ -46,8 +46,8 @@ func TestLoad_RealRegistryIsValid(t *testing.T) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 
-	if len(reg.Skills) != 14 {
-		t.Errorf("len(Skills) = %d, want 14", len(reg.Skills))
+	if len(reg.Skills) != 17 {
+		t.Errorf("len(Skills) = %d, want 17", len(reg.Skills))
 	}
 
 	for _, target := range []string{"generic", "opencode", "claude-code", "gemini-cli", "codex"} {

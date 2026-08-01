@@ -199,7 +199,7 @@ Check the exact tag name - `0.1.0` (missing `v`), `v0.1` (missing patch
 segment), or a typo won't match. Delete the bad tag and re-tag correctly.
 
 **Expected 6 files, got 12 (or vice versa).** Every release publishes
-both variants - the default (`promptsmith_...`, all 11 skills) and the
+both variants - the default (`promptsmith_...`, all 17 skills) and the
 empty one (`promptsmith-empty_...`, no skills) - across 6 platform
 combinations (linux/darwin/windows x amd64/arm64), plus `checksums.txt`:
 `6 x 2 = 12` archives + 1 checksums file. If someone reports "only 6

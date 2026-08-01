@@ -734,14 +734,6 @@ func TestView_RealRegistrySurfacesCodingLeanCode(t *testing.T) {
 
 	m := newModel(reg, prompt.Inputs{Target: "generic", Goal: "some goal"})
 
-	got := stripANSI(m.View())
-	if !strings.Contains(got, "CODING") {
-		t.Errorf("View() missing category header %q, got:\n%s", "CODING", got)
-	}
-	if !strings.Contains(got, "lean-code") {
-		t.Errorf("View() missing skill id %q, got:\n%s", "lean-code", got)
-	}
-
 	idx := -1
 	for i, it := range m.items {
 		if !it.isHeader && it.skill.ID == "lean-code" {
@@ -752,7 +744,23 @@ func TestView_RealRegistrySurfacesCodingLeanCode(t *testing.T) {
 	if idx == -1 {
 		t.Fatal("lean-code not found in m.items")
 	}
+	// Move the cursor to lean-code before rendering: the skills list is
+	// now longer than the default viewport (more planning skills were
+	// added), so lean-code falls outside the initial scroll window at
+	// cursor 0. The list follows the cursor (see visibleWindow), so
+	// this still exercises the real guard - lean-code failing to
+	// render here means it was dropped, miscategorized, or the
+	// cursor-follow scrolling broke - not that it's merely below the
+	// fold.
 	m.cursor = idx
+
+	got := stripANSI(m.View())
+	if !strings.Contains(got, "CODING") {
+		t.Errorf("View() missing category header %q, got:\n%s", "CODING", got)
+	}
+	if !strings.Contains(got, "lean-code") {
+		t.Errorf("View() missing skill id %q, got:\n%s", "lean-code", got)
+	}
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
 	m2 := updated.(model)

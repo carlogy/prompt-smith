@@ -59,7 +59,7 @@ variants - pick the one that matches what you want:
 
 | Archive pattern | Contains |
 |---|---|
-| `promptsmith_<version>_<os>_<arch>.tar.gz` (`.zip` on windows) | binary + all 11 built-in skills - the "just start generating prompts" build |
+| `promptsmith_<version>_<os>_<arch>.tar.gz` (`.zip` on windows) | binary + all 17 built-in skills - the "just start generating prompts" build |
 | `promptsmith-empty_<version>_<os>_<arch>.tar.gz` (`.zip` on windows) | binary only, zero bundled skills - for supplying your own via `PROMPTSMITH_SKILLS_DIR` (see [Custom skills](#custom-skills)) |
 
 Download the one for your OS/arch, extract it, and put `promptsmith` on
@@ -80,7 +80,7 @@ go install github.com/carlogy/prompt-smith/cmd/promptsmith@latest  # latest rele
 go install github.com/carlogy/prompt-smith/cmd/promptsmith@v0.1.0  # pinned
 ```
 
-This always builds the default variant (all 11 skills embedded) - build
+This always builds the default variant (all 17 skills embedded) - build
 tags aren't part of a module version, so there's no `@version` form that
 selects the empty variant. To get the empty variant via `go install`
 instead, add the build tag to the invocation itself:
